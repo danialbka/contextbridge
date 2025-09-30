@@ -1,0 +1,29 @@
+body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background: #fafafa; color: #222; }
+.page { max-width: 760px; margin: 0 auto; padding: 20px; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.header-buttons { display: flex; gap: 8px; }
+.header-buttons { display: flex; gap: 8px; }
+h1 { margin: 0; font-size: 20px; }
+.subtitle { margin: 4px 0 0; font-size: 13px; color: #555; }
+.status { font-size: 13px; color: #555; }
+.day-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.day-links a { padding: 6px 10px; border-radius: 999px; background: #e7eefc; color: #0b57d0; text-decoration: none; font-size: 13px; }
+.day-links a:hover { background: #d7e2fb; }
+.day-sections { display: flex; flex-direction: column; gap: 20px; }
+.day { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.day header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-bottom: 12px; }
+.day-controls { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: nowrap; }
+.day-buttons { display: flex; gap: 8px; flex-wrap: nowrap; justify-content: flex-end; }
+.day h2 { margin: 0; font-size: 18px; }
+button { cursor: pointer; border: 0; border-radius: 10px; padding: 8px 12px; background: #111; color: #fff; font-size: 13px; }
+button.ghost { background: #f2f2f2; color: #222; }
+button.danger { background: #d93025; color: #fff; }
+button:active { transform: translateY(1px); }
+pre { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; background: #f5f7fb; border-radius: 10px; padding: 12px; }
+.action-status { font-size: 12px; color: #0b57d0; min-height: 16px; text-align: right; white-space: nowrap; order: -1; margin-right: 12px; margin-left: 0; min-width: 96px; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: none; align-items: center; justify-content: center; padding: 16px; }
+.overlay.open { display: flex; }
+.dialog { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); width: 100%; max-width: 320px; }
+.dialog h2 { margin: 0 0 6px; font-size: 18px; }
+.dialog p { margin: 0 0 16px; font-size: 13px; color: #444; }
+.dialog-buttons { display: flex; justify-content: flex-end; gap: 10px; }

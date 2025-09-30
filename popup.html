@@ -1,0 +1,40 @@
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Context Copy Agent</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h1>Context Copy</h1>
+    <div id="stats" class="stats">Loading…</div>
+
+    <div class="buttons">
+      <button id="copyBtn">Copy Context</button>
+      <button id="sendBtn">Send to ChatGPT</button>
+      <button id="clearBtn" class="ghost">Panic Erase</button>
+      <button id="historyBtn" class="ghost">History</button>
+      <a id="opts" class="link" href="#">Options</a>
+    </div>
+
+    <div class="note">
+      Data is stored locally. Form inputs are <b>OFF</b> by default. Configure in Options.
+    </div>
+
+    <div id="toast" class="toast" hidden>Copied!</div>
+    <div id="confirmOverlay" class="overlay" aria-hidden="true">
+      <div class="dialog">
+        <h2>Panic Erase</h2>
+        <p>Erase all captured events? This cannot be undone.</p>
+        <div class="dialog-buttons">
+          <button id="confirmCancel" type="button" class="ghost">Cancel</button>
+          <button id="confirmAccept" type="button">Erase</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

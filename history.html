@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Context Copy History</title>
+  <link rel="stylesheet" href="history.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div>
+        <h1>Browsing History</h1>
+        <p class="subtitle">Grouped by local day; only includes allowed domains.</p>
+      </div>
+      <div class="header-buttons">
+        <button id="refreshBtn" type="button" class="ghost">Refresh</button>
+        <button id="clearHistoryBtn" type="button" class="danger">Clear History</button>
+      </div>
+    </header>
+
+    <div id="loading" class="status">Loading…</div>
+    <div id="empty" class="status" hidden>No recent history captured within your configured window.</div>
+
+    <nav id="dayLinks" class="day-links" hidden></nav>
+
+    <section id="daySections" class="day-sections"></section>
+    <div id="confirmOverlay" class="overlay" aria-hidden="true">
+      <div class="dialog">
+        <h2>Clear History</h2>
+        <p>Remove recent browsing history within the current window? This cannot be undone.</p>
+        <div class="dialog-buttons">
+          <button id="cancelClear" type="button" class="ghost">Cancel</button>
+          <button id="confirmClear" type="button" class="danger">Clear</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="history.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+
+body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 0; }
+.wrap { width: 340px; padding: 14px 14px 10px; }
+h1 { font-size: 16px; margin: 0 0 10px; }
+.stats { font-size: 12px; color: #444; margin-bottom: 10px; }
+.buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center; }
+button { padding: 8px 10px; border: 0; border-radius: 10px; background: #111; color: #fff; cursor: pointer; }
+button.ghost { background: #f2f2f2; color: #222; }
+button:active { transform: translateY(1px); }
+.link { grid-column: span 2; text-align: right; font-size: 12px; color: #0b57d0; text-decoration: none; }
+.note { margin-top: 10px; font-size: 11px; color: #555; }
+.toast { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); background: #111; color: #fff; padding: 6px 10px; border-radius: 999px; font-size: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: none; align-items: center; justify-content: center; padding: 16px; }
+.overlay.open { display: flex; }
+.dialog { background: #fff; border-radius: 14px; padding: 18px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); width: 100%; max-width: 260px; }
+.dialog h2 { margin: 0 0 6px; font-size: 16px; }
+.dialog p { margin: 0 0 14px; font-size: 13px; color: #444; }
+.dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
