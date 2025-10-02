@@ -4,6 +4,18 @@ body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, H
 h1 { font-size: 16px; margin: 0 0 10px; }
 .stats { font-size: 12px; color: #444; margin-bottom: 10px; }
 .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center; }
+.split-button { position: relative; display: flex; width: 100%; }
+.split-button-main { flex: 1 1 auto; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-button-toggle { width: 38px; padding: 0; display: grid; place-items: center; border-top-left-radius: 0; border-bottom-left-radius: 0; background: #1e1e1e; }
+.split-button-toggle:focus-visible { outline: 2px solid #0b57d0; outline-offset: 2px; }
+.split-button-main:focus-visible { outline: 2px solid #0b57d0; outline-offset: 2px; }
+.split-button .chevron { display: inline-block; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #fff; }
+.split-menu { position: absolute; top: calc(100% + 4px); right: 0; background: #fff; border-radius: 10px; box-shadow: 0 10px 24px rgba(0,0,0,0.2); padding: 6px; display: grid; gap: 4px; min-width: 180px; z-index: 10; }
+.split-menu-item { width: 100%; padding: 6px 10px; text-align: left; background: transparent; color: #222; border-radius: 8px; border: 0; }
+.split-menu-item:hover, .split-menu-item:focus { background: #f2f2f2; }
+.split-menu-item:focus-visible { outline: 2px solid #0b57d0; outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+button.split-button-toggle { border-left: 1px solid rgba(255,255,255,0.2); }
 button { padding: 8px 10px; border: 0; border-radius: 10px; background: #111; color: #fff; cursor: pointer; }
 button.ghost { background: #f2f2f2; color: #222; }
 button:active { transform: translateY(1px); }

@@ -1,7 +1,9 @@
 
-/* global chrome */
+const chromeApi = typeof chrome !== 'undefined' ? chrome : null;
 const statsEl = document.getElementById('stats');
 const copyBtn = document.getElementById('copyBtn');
+const copyDropdownToggle = document.getElementById('copyDropdownToggle');
+const copyRoleMenu = document.getElementById('copyRoleMenu');
 const sendBtn = document.getElementById('sendBtn');
 const clearBtn = document.getElementById('clearBtn');
 const opts = document.getElementById('opts');
@@ -11,6 +13,7 @@ const confirmOverlay = document.getElementById('confirmOverlay');
 const confirmCancel = document.getElementById('confirmCancel');
 const confirmAccept = document.getElementById('confirmAccept');
 let confirmOpen = false;
+let menuOpen = false;
 
 function showToast(msg){
   toast.textContent = msg;
@@ -19,38 +22,84 @@ function showToast(msg){
 }
 function fmt(ts){ return new Date(ts).toLocaleString(); }
 function refresh(){
-  chrome.runtime.sendMessage({ type: 'GET_COUNTS' }, (r)=>{
+  if (!chromeApi?.runtime){
+    statsEl.textContent = 'Events unavailable in preview mode.';
+    return;
+  }
+  chromeApi.runtime.sendMessage({ type: 'GET_COUNTS' }, (r)=>{
     if (!r?.ok) return;
     statsEl.textContent = `Events: ${r.count} | Session start: ${fmt(r.startedAt)}`;
   });
 }
 
 async function compose(){
+  if (!chromeApi?.runtime) return '';
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: 'COMPOSE_REPORT' }, (r)=> resolve(r?.text || ''));
+    chromeApi.runtime.sendMessage({ type: 'COMPOSE_REPORT' }, (r)=> resolve(r?.text || ''));
   });
 }
 
-copyBtn.addEventListener('click', async () => {
+async function copyContextWithRole(role){
   const text = await compose();
+  if (!text){
+    showToast('Nothing to copy');
+    return;
+  }
+  const prefix = role ? `[Role: ${role}]\n\n` : '';
   try {
-    await navigator.clipboard.writeText(text);
-    showToast('Copied context');
+    await navigator.clipboard.writeText(`${prefix}${text}`);
+    showToast(role ? `Copied as ${role}` : 'Copied context');
   } catch (e){
     console.error(e);
     showToast('Copy failed');
   }
+}
+
+copyBtn.addEventListener('click', async () => {
+  await copyContextWithRole();
 });
 
 sendBtn.addEventListener('click', async () => {
   const text = await compose();
+  if (!chromeApi?.runtime){
+    showToast('Only available in extension');
+    return;
+  }
   try {
     await navigator.clipboard.writeText(text); // fallback for manual paste if needed
   } catch (e) { /* non-fatal */ }
-  chrome.runtime.sendMessage({ type: 'OPEN_AND_SEND', text }, (r) => {
+  chromeApi.runtime.sendMessage({ type: 'OPEN_AND_SEND', text }, (r) => {
     if (r?.ok) showToast('Opening ChatGPT…');
     else showToast('Could not open ChatGPT');
   });
+});
+
+function closeMenu(){
+  if (!menuOpen) return;
+  menuOpen = false;
+  copyRoleMenu.hidden = true;
+  copyDropdownToggle.setAttribute('aria-expanded', 'false');
+}
+
+function openMenu(){
+  if (menuOpen) return;
+  menuOpen = true;
+  copyRoleMenu.hidden = false;
+  copyDropdownToggle.setAttribute('aria-expanded', 'true');
+}
+
+copyDropdownToggle?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (menuOpen) closeMenu();
+  else openMenu();
+});
+
+copyRoleMenu?.addEventListener('click', async (event) => {
+  if (!(event.target instanceof HTMLButtonElement)) return;
+  event.stopPropagation();
+  const role = event.target.dataset.role;
+  closeMenu();
+  await copyContextWithRole(role);
 });
 
 function showConfirm(){
@@ -71,8 +120,9 @@ clearBtn.addEventListener('click', () => { showConfirm(); });
 confirmCancel.addEventListener('click', () => { hideConfirm(); });
 
 confirmAccept.addEventListener('click', () => {
+  if (!chromeApi?.runtime) return;
   hideConfirm();
-  chrome.runtime.sendMessage({ type: 'CLEAR_EVENTS' }, (r)=>{
+  chromeApi.runtime.sendMessage({ type: 'CLEAR_EVENTS' }, (r)=>{
     if (r?.ok) { refresh(); showToast('Erased'); }
   });
 });
@@ -83,14 +133,25 @@ confirmOverlay.addEventListener('click', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (confirmOpen && e.key === 'Escape') hideConfirm();
+  if (menuOpen && e.key === 'Escape') closeMenu();
 });
 
-opts.addEventListener('click', () => { chrome.runtime.openOptionsPage(); });
+document.addEventListener('click', () => { closeMenu(); });
+
+opts.addEventListener('click', () => {
+  if (!chromeApi?.runtime) return;
+  chromeApi.runtime.openOptionsPage();
+});
+
 historyBtn.addEventListener('click', () => {
-  const url = chrome.runtime.getURL('history.html');
-  chrome.tabs.create({ url }, () => {
-    if (chrome.runtime.lastError) {
-      console.error('History open failed', chrome.runtime.lastError);
+  if (!chromeApi?.runtime) {
+    showToast('Only available in extension');
+    return;
+  }
+  const url = chromeApi.runtime.getURL('history.html');
+  chromeApi.tabs.create({ url }, () => {
+    if (chromeApi.runtime.lastError) {
+      console.error('History open failed', chromeApi.runtime.lastError);
       showToast('Unable to open history');
       return;
     }
