@@ -12,7 +12,25 @@
     <div id="stats" class="stats">Loading…</div>
 
     <div class="buttons">
-      <button id="copyBtn">Copy Context</button>
+      <div class="split-button" id="copySplit">
+        <button id="copyBtn" class="split-button-main" type="button">Copy Context</button>
+        <button
+          id="copyDropdownToggle"
+          class="split-button-toggle"
+          type="button"
+          aria-haspopup="true"
+          aria-expanded="false"
+          aria-controls="copyRoleMenu"
+        >
+          <span class="chevron" aria-hidden="true"></span>
+          <span class="sr-only">Copy with role</span>
+        </button>
+        <div id="copyRoleMenu" class="split-menu" role="menu" hidden>
+          <button type="button" class="split-menu-item" data-role="Therapist" role="menuitem">Therapist</button>
+          <button type="button" class="split-menu-item" data-role="Data Analyst" role="menuitem">Data Analyst</button>
+          <button type="button" class="split-menu-item" data-role="Recommendation Coach" role="menuitem">Recommendation Coach</button>
+        </div>
+      </div>
       <button id="sendBtn">Send to ChatGPT</button>
       <button id="clearBtn" class="ghost">Panic Erase</button>
       <button id="historyBtn" class="ghost">History</button>
