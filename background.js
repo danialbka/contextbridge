@@ -4,6 +4,12 @@ const EVENTS_KEY = 'cca_events_v1';
 const SETTINGS_KEY = 'cca_settings_v1';
 const SESSION_KEY = 'cca_session_v1';
 
+const HISTORY_DB_NAME = 'cca_history_days_v1';
+const HISTORY_DB_VERSION = 1;
+const HISTORY_STORE = 'days';
+
+let historyDbPromise;
+
 const DEFAULT_SETTINGS = {
   captureInputs: false,
   captureSelections: true,
@@ -15,6 +21,137 @@ const DEFAULT_SETTINGS = {
   includeHistoryWindowMinutes: 45,
   timeFormat: 'local',
 };
+
+function getHistoryDb(){
+  if (!historyDbPromise){
+    historyDbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(HISTORY_DB_NAME, HISTORY_DB_VERSION);
+      req.onerror = () => reject(req.error);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(HISTORY_STORE)){
+          const store = db.createObjectStore(HISTORY_STORE, { keyPath: 'dayKey' });
+          store.createIndex('sort', 'sortValue');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+    });
+  }
+  return historyDbPromise;
+}
+
+function idbRequest(req){
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbTxDone(tx){
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+function mergeDayLines(existingLines = [], newLines = []){
+  const seen = new Set(existingLines);
+  const merged = existingLines.slice();
+  newLines.forEach((line) => {
+    if (!seen.has(line)){
+      merged.push(line);
+      seen.add(line);
+    }
+  });
+  return merged;
+}
+
+async function persistHistoryDays(days, settings){
+  if (!days.length) return;
+  try {
+    const db = await getHistoryDb();
+    const tx = db.transaction(HISTORY_STORE, 'readwrite');
+    const store = tx.objectStore(HISTORY_STORE);
+    for (const day of days){
+      const existing = await idbRequest(store.get(day.dayKey));
+      const existingLines = Array.isArray(existing?.lines) ? existing.lines : [];
+      const mergedLines = mergeDayLines(existingLines, day.lines);
+      const record = {
+        dayKey: day.dayKey,
+        sortValue: day.sortValue,
+        lines: mergedLines,
+        updatedAt: nowTs(),
+      };
+      await idbRequest(store.put(record));
+    }
+    await idbTxDone(tx);
+    await trimStoredHistory(settings.maxEvents);
+  } catch (e){
+    console.error('Persist history days failed', e);
+  }
+}
+
+async function trimStoredHistory(maxEvents){
+  try {
+    if (!Number.isFinite(maxEvents) || maxEvents <= 0) return;
+    const db = await getHistoryDb();
+    const days = await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE, 'readonly');
+      const store = tx.objectStore(HISTORY_STORE);
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+    let total = days.reduce((sum, d) => sum + (d.lines?.length || 0), 0);
+    if (total <= maxEvents) return;
+    days.sort((a,b)=>a.sortValue - b.sortValue);
+    const tx = db.transaction(HISTORY_STORE, 'readwrite');
+    const store = tx.objectStore(HISTORY_STORE);
+    for (const day of days){
+      if (total <= maxEvents) break;
+      const lines = Array.isArray(day.lines) ? day.lines : [];
+      while (lines.length && total > maxEvents){
+        lines.shift();
+        total--;
+      }
+      if (!lines.length){
+        await idbRequest(store.delete(day.dayKey));
+      } else {
+        await idbRequest(store.put({ ...day, lines }));
+      }
+    }
+    await idbTxDone(tx);
+  } catch (e){
+    console.error('Trim stored history failed', e);
+  }
+}
+
+async function loadStoredHistoryDays(settings){
+  try {
+    const db = await getHistoryDb();
+    const days = await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE, 'readonly');
+      const store = tx.objectStore(HISTORY_STORE);
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+    return days
+      .filter((d) => Array.isArray(d.lines) && d.lines.length)
+      .sort((a,b)=>a.sortValue - b.sortValue)
+      .map((day) => ({
+        id: `day-${day.sortValue}`,
+        label: fmtDay(day.sortValue, settings.timeFormat),
+        sortValue: day.sortValue,
+        lines: day.lines.slice(),
+        text: day.lines.join('\n'),
+      }));
+  } catch (e){
+    console.error('Load stored history days failed', e);
+    return [];
+  }
+}
 
 function nowTs(){ return Date.now(); }
 function fmtTime(ts, mode='local'){
@@ -77,18 +214,17 @@ function parseSearch(u){
   } catch { return null; }
 }
 
-function dayBucket(ts, mode='local'){
+function dayBucket(ts){
   const d = new Date(ts);
   const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const label = fmtDay(ts, mode);
   const sortValue = start.getTime();
-  const key = mode === 'iso' ? label : String(sortValue);
-  return { key, label, sortValue, anchorId: `day-${sortValue}` };
+  return { dayKey: String(sortValue), sortValue };
 }
 
 async function collectRecentHistory(settings){
   const since = new Date(Date.now() - settings.includeHistoryWindowMinutes*60*1000);
-  const hist = await chrome.history.search({ text: '', startTime: since.getTime(), maxResults: 200 });
+  const maxResults = Math.max(settings.maxEvents || 0, 200);
+  const hist = await chrome.history.search({ text: '', startTime: since.getTime(), maxResults });
   hist.sort((a,b)=>a.lastVisitTime-b.lastVisitTime);
 
   const entries = [];
@@ -102,24 +238,25 @@ async function collectRecentHistory(settings){
     const line = `- [${t}] ${h.title||'(untitled)'} — ${h.url}${extra}`;
     entries.push(line);
 
-    const bucketKey = dayBucket(h.lastVisitTime, settings.timeFormat);
-    if (!buckets.has(bucketKey.key)){
-      buckets.set(bucketKey.key, { ...bucketKey, lines: [] });
+    const bucket = dayBucket(h.lastVisitTime);
+    if (!buckets.has(bucket.dayKey)){
+      buckets.set(bucket.dayKey, { ...bucket, lines: [] });
     }
-    buckets.get(bucketKey.key).lines.push(line);
+    buckets.get(bucket.dayKey).lines.push(line);
   });
 
   const days = Array.from(buckets.values())
     .sort((a,b)=>a.sortValue - b.sortValue)
     .map((bucket) => ({
-      key: bucket.key,
-      label: bucket.label,
-      anchorId: bucket.anchorId,
+      dayKey: bucket.dayKey,
       sortValue: bucket.sortValue,
       lines: bucket.lines.slice(),
     }));
 
-  return { entries, days };
+  await persistHistoryDays(days, settings);
+  const storedDays = await loadStoredHistoryDays(settings);
+
+  return { entries, days: storedDays };
 }
 
 async function clearRecentHistory(settings){
@@ -166,14 +303,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg?.type === 'GET_HISTORY_BY_DAY') {
       const history = await collectRecentHistory(settings);
-      const days = history.days.map((day) => ({
-        id: day.anchorId,
-        label: day.label,
-        sortValue: day.sortValue,
-        lines: day.lines,
-        text: day.lines.join('\n'),
-      }));
-      return sendResponse({ ok: true, days });
+      return sendResponse({ ok: true, days: history.days });
     }
 
     if (msg?.type === 'CLEAR_HISTORY_WINDOW') {
