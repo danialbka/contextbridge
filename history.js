@@ -11,6 +11,58 @@ const confirmClear = document.getElementById('confirmClear');
 const cancelClear = document.getElementById('cancelClear');
 let confirmOpen = false;
 
+const ROLE_OPTIONS = ['Therapist', 'Data Analyst', 'Recommendation Coach'];
+const roleMenuContexts = new Set();
+
+function createRoleMenuContext(menuEl, toggleEl){
+  let open = false;
+  const context = {
+    open(){
+      if (open) return;
+      roleMenuContexts.forEach((ctx) => {
+        if (ctx !== context) ctx.close();
+      });
+      open = true;
+      menuEl.hidden = false;
+      toggleEl.setAttribute('aria-expanded', 'true');
+    },
+    close(){
+      if (!open) return;
+      open = false;
+      menuEl.hidden = true;
+      toggleEl.setAttribute('aria-expanded', 'false');
+    },
+    isOpen(){
+      return open;
+    },
+    isMenuTarget(target){
+      if (!(target instanceof Node)) return false;
+      return menuEl.contains(target) || toggleEl.contains(target);
+    }
+  };
+  roleMenuContexts.add(context);
+  return context;
+}
+
+function closeAllRoleMenus(){
+  let closedAny = false;
+  roleMenuContexts.forEach((ctx) => {
+    if (!ctx.isOpen()) return;
+    ctx.close();
+    closedAny = true;
+  });
+  return closedAny;
+}
+
+function handleGlobalMenuDismiss(target){
+  if (!(target instanceof Node)) return;
+  roleMenuContexts.forEach((ctx) => {
+    if (!ctx.isOpen()) return;
+    if (ctx.isMenuTarget(target)) return;
+    ctx.close();
+  });
+}
+
 function setLoading(isLoading){
   loadingEl.hidden = !isLoading;
 }
@@ -21,6 +73,8 @@ function showEmpty(show){
 }
 
 function clearView(){
+  closeAllRoleMenus();
+  roleMenuContexts.clear();
   linksEl.innerHTML = '';
   sectionsEl.innerHTML = '';
 }
@@ -64,51 +118,192 @@ function buildDaySection(day){
   const buttons = document.createElement('div');
   buttons.className = 'day-buttons';
 
+  const copySplit = document.createElement('div');
+  copySplit.className = 'split-button';
+
   const copyBtn = document.createElement('button');
   copyBtn.textContent = 'Copy Day';
   copyBtn.type = 'button';
+  copyBtn.classList.add('split-button-main');
+
+  const copyToggle = document.createElement('button');
+  copyToggle.type = 'button';
+  copyToggle.className = 'split-button-toggle';
+  copyToggle.setAttribute('aria-haspopup', 'true');
+
+  const copyMenuId = `copyRoleMenu-${day.id}`;
+  copyToggle.setAttribute('aria-controls', copyMenuId);
+  copyToggle.setAttribute('aria-expanded', 'false');
+
+  const copyChevron = document.createElement('span');
+  copyChevron.className = 'chevron';
+  copyChevron.setAttribute('aria-hidden', 'true');
+  copyToggle.appendChild(copyChevron);
+
+  const copySrLabel = document.createElement('span');
+  copySrLabel.className = 'sr-only';
+  copySrLabel.textContent = 'Copy with role';
+  copyToggle.appendChild(copySrLabel);
+
+  const copyRoleMenu = document.createElement('div');
+  copyRoleMenu.className = 'split-menu';
+  copyRoleMenu.id = copyMenuId;
+  copyRoleMenu.setAttribute('role', 'menu');
+  copyRoleMenu.hidden = true;
+
+  ROLE_OPTIONS.forEach((role) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'split-menu-item';
+    item.dataset.role = role;
+    item.textContent = role;
+    item.setAttribute('role', 'menuitem');
+    copyRoleMenu.appendChild(item);
+  });
+
+  copySplit.appendChild(copyBtn);
+  copySplit.appendChild(copyToggle);
+  copySplit.appendChild(copyRoleMenu);
+
+  const sendSplit = document.createElement('div');
+  sendSplit.className = 'split-button';
 
   const sendBtn = document.createElement('button');
   sendBtn.textContent = 'Send to ChatGPT';
   sendBtn.type = 'button';
-  sendBtn.classList.add('ghost');
+  sendBtn.classList.add('ghost', 'split-button-main');
+
+  const sendToggle = document.createElement('button');
+  sendToggle.type = 'button';
+  sendToggle.className = 'split-button-toggle ghost';
+  sendToggle.setAttribute('aria-haspopup', 'true');
+
+  const sendMenuId = `sendRoleMenu-${day.id}`;
+  sendToggle.setAttribute('aria-controls', sendMenuId);
+  sendToggle.setAttribute('aria-expanded', 'false');
+
+  const sendChevron = document.createElement('span');
+  sendChevron.className = 'chevron';
+  sendChevron.setAttribute('aria-hidden', 'true');
+  sendToggle.appendChild(sendChevron);
+
+  const sendSrLabel = document.createElement('span');
+  sendSrLabel.className = 'sr-only';
+  sendSrLabel.textContent = 'Send with role';
+  sendToggle.appendChild(sendSrLabel);
+
+  const sendRoleMenu = document.createElement('div');
+  sendRoleMenu.className = 'split-menu';
+  sendRoleMenu.id = sendMenuId;
+  sendRoleMenu.setAttribute('role', 'menu');
+  sendRoleMenu.hidden = true;
+
+  ROLE_OPTIONS.forEach((role) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'split-menu-item';
+    item.dataset.role = role;
+    item.textContent = role;
+    item.setAttribute('role', 'menuitem');
+    sendRoleMenu.appendChild(item);
+  });
+
+  sendSplit.appendChild(sendBtn);
+  sendSplit.appendChild(sendToggle);
+  sendSplit.appendChild(sendRoleMenu);
 
   const status = document.createElement('span');
   status.className = 'action-status';
   status.textContent = '';
 
-  copyBtn.addEventListener('click', async () => {
-    status.textContent = 'Copying…';
+  let statusTimeout;
+  function setStatus(message, { autoClear = true } = {}){
+    clearTimeout(statusTimeout);
+    status.textContent = message;
+    if (autoClear && message){
+      statusTimeout = setTimeout(() => { status.textContent = ''; }, 1800);
+    }
+  }
+
+  const copyMenuContext = createRoleMenuContext(copyRoleMenu, copyToggle);
+  const sendMenuContext = createRoleMenuContext(sendRoleMenu, sendToggle);
+
+  function buildDayText(role){
+    const prefix = role ? `[Role: ${role}]\n\n` : '';
+    return `${prefix}${day.text}`;
+  }
+
+  async function copyDay(role){
+    setStatus(role ? `Copying as ${role}…` : 'Copying…', { autoClear: false });
     try {
-      await navigator.clipboard.writeText(day.text);
-      status.textContent = 'Copied';
+      await navigator.clipboard.writeText(buildDayText(role));
+      setStatus(role ? `Copied as ${role}` : 'Copied');
     } catch (e){
       console.error('Copy failed', e);
-      status.textContent = 'Copy failed';
+      setStatus('Copy failed');
     }
-    setTimeout(() => { status.textContent = ''; }, 1800);
+  }
+
+  copyBtn.addEventListener('click', async () => {
+    copyMenuContext.close();
+    await copyDay();
   });
 
-  sendBtn.addEventListener('click', async () => {
-    status.textContent = 'Sending…';
+  async function sendDay(role){
+    setStatus(role ? `Sending as ${role}…` : 'Sending…', { autoClear: false });
+    const text = buildDayText(role);
     try {
-      await navigator.clipboard.writeText(day.text);
+      await navigator.clipboard.writeText(text);
     } catch (e) {
       console.debug('Clipboard write failed (non-fatal)', e);
     }
-    chrome.runtime.sendMessage({ type: 'OPEN_AND_SEND', text: day.text }, (resp) => {
+    chrome.runtime.sendMessage({ type: 'OPEN_AND_SEND', text }, (resp) => {
       if (chrome.runtime.lastError || !resp?.ok) {
         console.error('Send failed', chrome.runtime.lastError || resp);
-        status.textContent = 'Send failed';
-      } else {
-        status.textContent = 'Sent';
+        setStatus('Send failed');
+        return;
       }
-      setTimeout(() => { status.textContent = ''; }, 1800);
+      setStatus(role ? `Sent as ${role}` : 'Sent');
     });
+  }
+
+  sendBtn.addEventListener('click', async () => {
+    sendMenuContext.close();
+    await sendDay();
   });
 
-  buttons.appendChild(copyBtn);
-  buttons.appendChild(sendBtn);
+  copyToggle.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (copyMenuContext.isOpen()) copyMenuContext.close();
+    else copyMenuContext.open();
+  });
+
+  copyRoleMenu.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLButtonElement)) return;
+    event.stopPropagation();
+    const role = target.dataset.role;
+    copyMenuContext.close();
+    await copyDay(role);
+  });
+
+  sendToggle.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (sendMenuContext.isOpen()) sendMenuContext.close();
+    else sendMenuContext.open();
+  });
+
+  sendRoleMenu.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLButtonElement)) return;
+    event.stopPropagation();
+    const role = target.dataset.role;
+    sendMenuContext.close();
+    await sendDay(role);
+  });
+
+  buttons.appendChild(copySplit);
+  buttons.appendChild(sendSplit);
   controls.appendChild(buttons);
   controls.appendChild(status);
   header.appendChild(controls);
@@ -175,7 +370,15 @@ refreshBtn.addEventListener('click', () => loadDays());
 clearHistoryBtn.addEventListener('click', () => showConfirm());
 cancelClear.addEventListener('click', () => hideConfirm());
 confirmOverlay.addEventListener('click', (e) => { if (e.target === confirmOverlay) hideConfirm(); });
-document.addEventListener('keydown', (e) => { if (confirmOpen && e.key === 'Escape') hideConfirm(); });
+document.addEventListener('click', (event) => { handleGlobalMenuDismiss(event.target); });
+document.addEventListener('focusin', (event) => { handleGlobalMenuDismiss(event.target); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape'){
+    const menuClosed = closeAllRoleMenus();
+    if (confirmOpen) hideConfirm();
+    if (menuClosed) e.stopPropagation();
+  }
+});
 confirmClear.addEventListener('click', async () => {
   hideConfirm();
   await clearHistoryWindow();

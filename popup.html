@@ -31,7 +31,25 @@
           <button type="button" class="split-menu-item" data-role="Recommendation Coach" role="menuitem">Recommendation Coach</button>
         </div>
       </div>
-      <button id="sendBtn">Send to ChatGPT</button>
+      <div class="split-button" id="sendSplit">
+        <button id="sendBtn" class="split-button-main" type="button">Send to ChatGPT</button>
+        <button
+          id="sendDropdownToggle"
+          class="split-button-toggle"
+          type="button"
+          aria-haspopup="true"
+          aria-expanded="false"
+          aria-controls="sendRoleMenu"
+        >
+          <span class="chevron" aria-hidden="true"></span>
+          <span class="sr-only">Send with role</span>
+        </button>
+        <div id="sendRoleMenu" class="split-menu" role="menu" hidden>
+          <button type="button" class="split-menu-item" data-role="Therapist" role="menuitem">Therapist</button>
+          <button type="button" class="split-menu-item" data-role="Data Analyst" role="menuitem">Data Analyst</button>
+          <button type="button" class="split-menu-item" data-role="Recommendation Coach" role="menuitem">Recommendation Coach</button>
+        </div>
+      </div>
       <button id="clearBtn" class="ghost">Panic Erase</button>
       <button id="historyBtn" class="ghost">History</button>
       <a id="opts" class="link" href="#">Options</a>
