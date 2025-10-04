@@ -13,7 +13,13 @@ const cancelClear = document.getElementById('cancelClear');
 let confirmOpen = false;
 let currentDays = [];
 
-const ROLE_OPTIONS = ['Therapist', 'Data Analyst', 'Recommendation Coach'];
+const ROLE_OPTIONS = [
+  'Therapist',
+  'Data Analyst',
+  'Recommendation Coach',
+  'Shopping Analyst (find best deals)',
+  'What Did I Miss Analyser'
+];
 const roleMenuContexts = new Set();
 
 function createRoleMenuContext(menuEl, toggleEl){
