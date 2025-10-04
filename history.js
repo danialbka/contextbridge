@@ -5,11 +5,13 @@ const sectionsEl = document.getElementById('daySections');
 const loadingEl = document.getElementById('loading');
 const emptyEl = document.getElementById('empty');
 const refreshBtn = document.getElementById('refreshBtn');
+const exportCsvBtn = document.getElementById('exportCsvBtn');
 const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 const confirmOverlay = document.getElementById('confirmOverlay');
 const confirmClear = document.getElementById('confirmClear');
 const cancelClear = document.getElementById('cancelClear');
 let confirmOpen = false;
+let currentDays = [];
 
 const ROLE_OPTIONS = ['Therapist', 'Data Analyst', 'Recommendation Coach'];
 const roleMenuContexts = new Set();
@@ -63,13 +65,24 @@ function handleGlobalMenuDismiss(target){
   });
 }
 
+function updateExportState({ isLoading = false } = {}){
+  if (!exportCsvBtn) return;
+  exportCsvBtn.disabled = isLoading || currentDays.length === 0;
+}
+
 function setLoading(isLoading){
   loadingEl.hidden = !isLoading;
+  updateExportState({ isLoading });
+  if (!isLoading && loadingEl) loadingEl.textContent = 'Loading…';
 }
 
 function showEmpty(show){
   emptyEl.hidden = !show;
   linksEl.hidden = show;
+  if (show){
+    currentDays = [];
+    updateExportState();
+  }
 }
 
 function clearView(){
@@ -81,6 +94,8 @@ function clearView(){
 
 function renderDays(days){
   clearView();
+  currentDays = [];
+  updateExportState();
   if (!days.length){
     showEmpty(true);
     return;
@@ -88,6 +103,8 @@ function renderDays(days){
 
   showEmpty(false);
   const sorted = [...days].sort((a,b)=>b.sortValue - a.sortValue);
+  currentDays = sorted;
+  updateExportState();
 
   sorted.forEach((day) => {
     const link = document.createElement('a');
@@ -316,6 +333,84 @@ function buildDaySection(day){
   return article;
 }
 
+function parseHistoryLine(line){
+  const result = { time: '', title: '', url: '', notes: '' };
+  if (typeof line !== 'string'){
+    result.notes = String(line ?? '');
+    return result;
+  }
+
+  const prefix = '- [';
+  if (!line.startsWith(prefix)){
+    result.notes = line.trim();
+    return result;
+  }
+
+  const closingBracketIdx = line.indexOf('] ');
+  if (closingBracketIdx === -1){
+    result.notes = line.trim();
+    return result;
+  }
+
+  result.time = line.slice(prefix.length, closingBracketIdx).trim();
+  const remainder = line.slice(closingBracketIdx + 2).trim();
+  const separatorIdx = remainder.lastIndexOf(' — ');
+  if (separatorIdx === -1){
+    result.title = remainder.trim();
+    return result;
+  }
+
+  result.title = remainder.slice(0, separatorIdx).trim();
+  const tail = remainder.slice(separatorIdx + 3).trim();
+  const searchIdx = tail.indexOf(' [search:');
+  if (searchIdx !== -1){
+    result.url = tail.slice(0, searchIdx).trim();
+    result.notes = tail.slice(searchIdx).trim();
+  } else {
+    result.url = tail;
+  }
+
+  return result;
+}
+
+function exportHistoryCsv(){
+  if (!currentDays.length){
+    window.alert('No history to export yet.');
+    return;
+  }
+
+  const header = ['Day', 'Time', 'Title', 'URL', 'Notes'];
+  const rows = [header];
+  currentDays.forEach((day) => {
+    day.lines.forEach((line) => {
+      const parsed = parseHistoryLine(line);
+      rows.push([
+        day.label,
+        parsed.time,
+        parsed.title,
+        parsed.url,
+        parsed.notes
+      ]);
+    });
+  });
+
+  const csv = rows.map((row) => row.map((value) => {
+    const text = value == null ? '' : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
+  }).join(',')).join('\r\n');
+
+  const blob = new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const today = new Date().toISOString().slice(0, 10);
+  a.download = `context-copy-history-${today}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function loadDays(){
   setLoading(true);
   chrome.runtime.sendMessage({ type: 'GET_HISTORY_BY_DAY' }, (resp) => {
@@ -367,6 +462,7 @@ async function clearHistoryWindow(){
 }
 
 refreshBtn.addEventListener('click', () => loadDays());
+if (exportCsvBtn) exportCsvBtn.addEventListener('click', () => exportHistoryCsv());
 clearHistoryBtn.addEventListener('click', () => showConfirm());
 cancelClear.addEventListener('click', () => hideConfirm());
 confirmOverlay.addEventListener('click', (e) => { if (e.target === confirmOverlay) hideConfirm(); });

@@ -19,6 +19,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 8px 12px; bac
 button.ghost { background: #f2f2f2; color: #222; }
 button.danger { background: #d93025; color: #fff; }
 button:active { transform: translateY(1px); }
+button:disabled { opacity: 0.6; cursor: not-allowed; }
 .split-button { position: relative; display: flex; width: auto; }
 .split-button-main { flex: none; border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split-button-toggle { width: 38px; padding: 0; display: grid; place-items: center; border-top-left-radius: 0; border-bottom-left-radius: 0; background: #1e1e1e; }
