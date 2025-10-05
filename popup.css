@@ -29,3 +29,9 @@ button:active { transform: translateY(1px); }
 .dialog h2 { margin: 0 0 6px; font-size: 16px; }
 .dialog p { margin: 0 0 14px; font-size: 13px; color: #444; }
 .dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Ko-fi button */
+.kofi-btn { grid-column: span 2; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #ff5e5b; color: #fff; text-decoration: none; font-size: 12px; }
+.kofi-btn:focus-visible { outline: 2px solid #0b57d0; outline-offset: 2px; }
+.kofi-btn:active { transform: translateY(1px); }
+.kofi-icon { display: inline-block; }

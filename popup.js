@@ -14,6 +14,7 @@ const historyBtn = document.getElementById('historyBtn');
 const confirmOverlay = document.getElementById('confirmOverlay');
 const confirmCancel = document.getElementById('confirmCancel');
 const confirmAccept = document.getElementById('confirmAccept');
+const kofiBtn = document.getElementById('kofiBtn');
 let confirmOpen = false;
 const menuContexts = new Set();
 
@@ -240,5 +241,20 @@ historyBtn.addEventListener('click', () => {
     }
     showToast('History opened');
   });
+});
+
+kofiBtn?.addEventListener('click', () => {
+  const url = 'https://ko-fi.com/danialbka';
+  if (chromeApi?.tabs) {
+    chromeApi.tabs.create({ url }, () => {
+      if (chromeApi.runtime?.lastError) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else {
+        showToast('Thanks for your support!');
+      }
+    });
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
 });
 refresh();
