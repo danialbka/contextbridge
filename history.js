@@ -251,9 +251,13 @@ function buildDaySection(day){
   const copyMenuContext = createRoleMenuContext(copyRoleMenu, copyToggle);
   const sendMenuContext = createRoleMenuContext(sendRoleMenu, sendToggle);
 
+  const dayText = Array.isArray(day.lines)
+    ? day.lines.join('\n')
+    : (typeof day.text === 'string' ? day.text : '');
+
   function buildDayText(role){
     const prefix = role ? `[Role: ${role}]\n\n` : '';
-    return `${prefix}${day.text}`;
+    return `${prefix}${dayText}`;
   }
 
   async function copyDay(role){
@@ -333,7 +337,7 @@ function buildDaySection(day){
   article.appendChild(header);
 
   const pre = document.createElement('pre');
-  pre.textContent = day.lines.join('\n');
+  pre.textContent = dayText;
   article.appendChild(pre);
 
   return article;
