@@ -458,6 +458,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const settings = await getSettings();
     if (msg?.type === 'EVENT') {
       const ev = msg.payload || {};
+      if (ev.debugOnly && !settings.developerDebugMode) {
+        return sendResponse({ ok: true });
+      }
       const resolvedUrl = primaryEventUrl(ev, sender);
       if (!domainAllowed(resolvedUrl, settings)) return sendResponse({ ok: true });
       const stored = { ...ev, ts: nowTs(), tabId: sender.tab?.id ?? -1 };
