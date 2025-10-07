@@ -13,6 +13,69 @@ const cancelClear = document.getElementById('cancelClear');
 let confirmOpen = false;
 let currentDays = [];
 
+function prepareDeveloperDebug(debug = {}){
+  if (!debug || typeof debug !== 'object') return null;
+  const timelineLines = Array.isArray(debug.timelineLines)
+    ? debug.timelineLines.map((line) => (typeof line === 'string' ? line : '')).filter((line) => line.trim())
+    : [];
+  const eventStream = typeof debug.eventStreamJson === 'string'
+    ? debug.eventStreamJson.trim()
+    : '';
+  if (!timelineLines.length && !eventStream) return null;
+  return {
+    timelineText: timelineLines.join('\n'),
+    eventStream,
+  };
+}
+
+function renderDeveloperDebug(debugInfo){
+  if (!debugInfo) return;
+  const section = document.createElement('section');
+  section.className = 'day debug';
+
+  const header = document.createElement('header');
+  const titleWrapper = document.createElement('div');
+  const title = document.createElement('h2');
+  title.textContent = 'Developer Debug Data';
+  titleWrapper.appendChild(title);
+  const subtitle = document.createElement('p');
+  subtitle.className = 'debug-subtitle';
+  subtitle.textContent = 'Available because Developer Debug Mode is enabled.';
+  titleWrapper.appendChild(subtitle);
+  header.appendChild(titleWrapper);
+  section.appendChild(header);
+
+  const content = document.createElement('div');
+  content.className = 'debug-content';
+
+  if (debugInfo.timelineText){
+    const timelineBlock = document.createElement('div');
+    timelineBlock.className = 'debug-block';
+    const timelineHeading = document.createElement('h3');
+    timelineHeading.textContent = 'Interaction Timeline';
+    timelineBlock.appendChild(timelineHeading);
+    const timelinePre = document.createElement('pre');
+    timelinePre.textContent = debugInfo.timelineText;
+    timelineBlock.appendChild(timelinePre);
+    content.appendChild(timelineBlock);
+  }
+
+  if (debugInfo.eventStream){
+    const eventBlock = document.createElement('div');
+    eventBlock.className = 'debug-block';
+    const eventHeading = document.createElement('h3');
+    eventHeading.textContent = 'Event Stream (JSON)';
+    eventBlock.appendChild(eventHeading);
+    const eventPre = document.createElement('pre');
+    eventPre.textContent = debugInfo.eventStream;
+    eventBlock.appendChild(eventPre);
+    content.appendChild(eventBlock);
+  }
+
+  section.appendChild(content);
+  sectionsEl.appendChild(section);
+}
+
 const ROLE_OPTIONS = [
   'Therapist',
   'Data Analyst',
@@ -98,16 +161,30 @@ function clearView(){
   sectionsEl.innerHTML = '';
 }
 
-function renderDays(days){
+function renderDays(days, debug){
   clearView();
   currentDays = [];
   updateExportState();
-  if (!days.length){
+  const debugInfo = prepareDeveloperDebug(debug);
+  const hasDebug = !!debugInfo;
+  const hasDays = Array.isArray(days) && days.length > 0;
+
+  if (!hasDays && !hasDebug){
     showEmpty(true);
     return;
   }
 
   showEmpty(false);
+  linksEl.hidden = !hasDays;
+
+  if (hasDebug){
+    renderDeveloperDebug(debugInfo);
+  }
+
+  if (!hasDays){
+    return;
+  }
+
   const sorted = [...days].sort((a,b)=>b.sortValue - a.sortValue);
   currentDays = sorted;
   updateExportState();
@@ -436,7 +513,7 @@ function loadDays(){
       showEmpty(true);
       return;
     }
-    renderDays(resp.days || []);
+    renderDays(resp.days || [], resp.debug);
   });
 }
 

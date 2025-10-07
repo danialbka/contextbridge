@@ -497,7 +497,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg?.type === 'GET_HISTORY_BY_DAY') {
       const history = await collectRecentHistory(settings);
-      return sendResponse({ ok: true, days: history.days });
+      const respPayload = { ok: true, days: history.days };
+      if (settings.developerDebugMode){
+        const events = await getEvents();
+        events.sort((a,b)=>a.ts-b.ts);
+        const timelineLines = buildInteractionTimeline(events, settings);
+        const eventStreamJson = buildEventStreamJson(events);
+        if (timelineLines.length || eventStreamJson){
+          respPayload.debug = {
+            timelineLines,
+            eventStreamJson,
+          };
+        }
+      }
+      return sendResponse(respPayload);
     }
 
     if (msg?.type === 'CLEAR_HISTORY_WINDOW') {

@@ -43,3 +43,8 @@ pre { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberatio
 .dialog h2 { margin: 0 0 6px; font-size: 18px; }
 .dialog p { margin: 0 0 16px; font-size: 13px; color: #444; }
 .dialog-buttons { display: flex; justify-content: flex-end; gap: 10px; }
+.day.debug header { margin-bottom: 12px; }
+.day.debug h2 { font-size: 18px; }
+.day.debug .debug-subtitle { margin: 6px 0 0; font-size: 13px; color: #555; }
+.debug-content { display: grid; gap: 16px; }
+.debug-block h3 { margin: 0 0 8px; font-size: 14px; color: #222; }
