@@ -12,14 +12,129 @@ const confirmClear = document.getElementById('confirmClear');
 const cancelClear = document.getElementById('cancelClear');
 let confirmOpen = false;
 let currentDays = [];
+const canUseClipboard = !!(navigator.clipboard && navigator.clipboard.writeText);
+const copyFeedbackTimers = new WeakMap();
+
+function setCopyFeedback(button, message){
+  if (!button) return;
+  const original = button.dataset.originalLabel || button.textContent;
+  if (!button.dataset.originalLabel){
+    button.dataset.originalLabel = original;
+  }
+  button.textContent = message;
+  button.disabled = true;
+  if (copyFeedbackTimers.has(button)){
+    clearTimeout(copyFeedbackTimers.get(button));
+  }
+  const timeout = setTimeout(() => {
+    button.textContent = button.dataset.originalLabel || original || 'Copy';
+    button.disabled = false;
+    copyFeedbackTimers.delete(button);
+  }, 1500);
+  copyFeedbackTimers.set(button, timeout);
+}
+
+async function copyTextToClipboard(text, button){
+  if (!canUseClipboard || !text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    setCopyFeedback(button, 'Copied!');
+  } catch (error){
+    console.error('Copy failed', error);
+    setCopyFeedback(button, 'Copy failed');
+  }
+}
+
+function createPreBlock(text){
+  const pre = document.createElement('pre');
+  pre.textContent = text;
+  return pre;
+}
+
+function createDebugBlock({ title, subtitle, copyText, copyLabel = 'Copy', content }){
+  const block = document.createElement('div');
+  block.className = 'debug-block';
+
+  const header = document.createElement('div');
+  header.className = 'debug-block-header';
+
+  const heading = document.createElement('h3');
+  heading.textContent = title;
+  header.appendChild(heading);
+
+  if (copyText && canUseClipboard){
+    const controls = document.createElement('div');
+    controls.className = 'debug-block-controls';
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'ghost debug-copy';
+    copyBtn.textContent = copyLabel;
+    copyBtn.addEventListener('click', async () => {
+      await copyTextToClipboard(copyText, copyBtn);
+    });
+    controls.appendChild(copyBtn);
+    header.appendChild(controls);
+  }
+
+  block.appendChild(header);
+
+  if (subtitle){
+    const note = document.createElement('p');
+    note.className = 'debug-note';
+    note.textContent = subtitle;
+    block.appendChild(note);
+  }
+
+  if (content){
+    block.appendChild(content);
+  }
+
+  return block;
+}
+
+function createGraphSummary(summary){
+  if (!summary) return null;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'debug-summary';
+
+  const stats = document.createElement('p');
+  stats.className = 'debug-summary-stats';
+  stats.textContent = `Pages: ${summary.pageCount ?? 0} • Nodes: ${summary.nodeCount ?? 0}`;
+  wrapper.appendChild(stats);
+
+  if (Array.isArray(summary.topPages) && summary.topPages.length){
+    const list = document.createElement('ul');
+    list.className = 'debug-summary-list';
+    summary.topPages.slice(0, 5).forEach((page) => {
+      const item = document.createElement('li');
+      const label = page.title ? `${page.title} — ${page.url}` : page.url;
+      item.textContent = `${label} (${page.nodeCount ?? 0} nodes)`;
+      list.appendChild(item);
+    });
+    wrapper.appendChild(list);
+  }
+
+  return wrapper;
+}
 
 function prepareDeveloperDebug(debug = {}){
   if (!debug || typeof debug !== 'object') return null;
-  const eventStream = typeof debug.eventStreamJson === 'string'
-    ? debug.eventStreamJson.trim()
-    : '';
-  if (!eventStream) return null;
-  return { eventStream };
+  const eventStream = typeof debug.eventStreamJson === 'string' ? debug.eventStreamJson.trim() : '';
+  const timelineSession = typeof debug.timelineSessionJson === 'string' ? debug.timelineSessionJson.trim() : '';
+  const uiGraph = typeof debug.uiGraphJson === 'string' ? debug.uiGraphJson.trim() : '';
+  const layoutProbeSnippet = typeof debug.layoutProbeSnippet === 'string' ? debug.layoutProbeSnippet.trim() : '';
+  const uiGraphSummary = debug.uiGraphSummary && typeof debug.uiGraphSummary === 'object'
+    ? debug.uiGraphSummary
+    : null;
+
+  if (!eventStream && !timelineSession && !uiGraph && !layoutProbeSnippet) return null;
+  return {
+    eventStream,
+    timelineSession,
+    uiGraph,
+    layoutProbeSnippet,
+    uiGraphSummary,
+  };
 }
 
 function renderDeveloperDebug(debugInfo){
@@ -30,11 +145,11 @@ function renderDeveloperDebug(debugInfo){
   const header = document.createElement('header');
   const titleWrapper = document.createElement('div');
   const title = document.createElement('h2');
-  title.textContent = 'Developer Event Stream';
+  title.textContent = 'Developer Debug Export';
   titleWrapper.appendChild(title);
   const subtitle = document.createElement('p');
   subtitle.className = 'debug-subtitle';
-  subtitle.textContent = 'Raw JSON export available while Developer Debug Mode is enabled.';
+  subtitle.textContent = 'Raw timeline, UI graph, and helper snippets available while Developer Debug Mode is enabled.';
   titleWrapper.appendChild(subtitle);
   header.appendChild(titleWrapper);
   section.appendChild(header);
@@ -42,15 +157,56 @@ function renderDeveloperDebug(debugInfo){
   const content = document.createElement('div');
   content.className = 'debug-content';
 
-  const eventBlock = document.createElement('div');
-  eventBlock.className = 'debug-block';
-  const eventHeading = document.createElement('h3');
-  eventHeading.textContent = 'Event Stream (JSON)';
-  eventBlock.appendChild(eventHeading);
-  const eventPre = document.createElement('pre');
-  eventPre.textContent = debugInfo.eventStream;
-  eventBlock.appendChild(eventPre);
-  content.appendChild(eventBlock);
+  if (debugInfo.uiGraphSummary){
+    const summaryContent = createGraphSummary(debugInfo.uiGraphSummary);
+    if (summaryContent){
+      content.appendChild(createDebugBlock({
+        title: 'UI Graph Summary',
+        subtitle: 'Inferred layout nodes from recent click events.',
+        content: summaryContent,
+      }));
+    }
+  }
+
+  if (debugInfo.timelineSession){
+    content.appendChild(createDebugBlock({
+      title: 'Timeline Session (JSON)',
+      subtitle: 'Normalized timeline events ready for LLM ingestion.',
+      copyText: debugInfo.timelineSession,
+      copyLabel: 'Copy JSON',
+      content: createPreBlock(debugInfo.timelineSession),
+    }));
+  }
+
+  if (debugInfo.uiGraph){
+    content.appendChild(createDebugBlock({
+      title: 'UI Graph (JSON)',
+      subtitle: 'Semantic UI map reconstructed from click selectors.',
+      copyText: debugInfo.uiGraph,
+      copyLabel: 'Copy JSON',
+      content: createPreBlock(debugInfo.uiGraph),
+    }));
+  }
+
+  if (debugInfo.eventStream){
+    content.appendChild(createDebugBlock({
+      title: 'Event Stream (JSON)',
+      subtitle: 'Full developer debug event stream with clicks, network, and console data.',
+      copyText: debugInfo.eventStream,
+      copyLabel: 'Copy JSON',
+      content: createPreBlock(debugInfo.eventStream),
+    }));
+  }
+
+  if (debugInfo.layoutProbeSnippet){
+    content.appendChild(createDebugBlock({
+      title: 'Layout Probe Snippet',
+      subtitle: 'Optional helper—run in the page console to capture computed styles for a selector.',
+      copyText: debugInfo.layoutProbeSnippet,
+      copyLabel: 'Copy snippet',
+      content: createPreBlock(debugInfo.layoutProbeSnippet),
+    }));
+  }
 
   section.appendChild(content);
   sectionsEl.appendChild(section);

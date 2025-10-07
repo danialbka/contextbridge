@@ -1,5 +1,8 @@
 
 /* global chrome */
+import { buildGraph, summarizeGraph } from './debug/reconstructor.js';
+import { makePatchFromTimeline } from './debug/orchestrator.js';
+import { LAYOUT_PROBE_SNIPPET } from './debug/layoutProbe.js';
 const EVENTS_KEY = 'cca_events_v1';
 const SETTINGS_KEY = 'cca_settings_v1';
 const SESSION_KEY = 'cca_session_v1';
@@ -405,6 +408,16 @@ function buildEventStreamJson(events){
   return JSON.stringify(payload, null, 2);
 }
 
+function buildTimelineSession(events){
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const cleanEvents = (events || []).map((ev) => sanitizeEventForJson(ev));
+  return {
+    locale_tz: tz,
+    exported_at: new Date().toISOString(),
+    events: cleanEvents,
+  };
+}
+
 function mergeHistoryAndTimelineDays(historyDays, timelineDays, settings){
   const map = new Map();
   const result = [];
@@ -569,9 +582,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         days = mergeHistoryAndTimelineDays(history.days, timelineDays, settings);
         respPayload.days = days;
         const eventStreamJson = buildEventStreamJson(events);
-        if (eventStreamJson){
+        const timelineSession = buildTimelineSession(events);
+        const uiGraph = buildGraph(timelineSession);
+        const uiGraphSummary = summarizeGraph(uiGraph);
+        const timelineSessionJson = JSON.stringify(timelineSession, null, 2);
+        const uiGraphJson = JSON.stringify(uiGraph, null, 2);
+        if (eventStreamJson || timelineSession.events.length || uiGraphSummary.nodeCount){
           respPayload.debug = {
-            eventStreamJson,
+            eventStreamJson: eventStreamJson || '',
+            timelineSessionJson,
+            uiGraphJson,
+            uiGraphSummary,
+            layoutProbeSnippet: LAYOUT_PROBE_SNIPPET.trim(),
           };
         }
       }
@@ -581,6 +603,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg?.type === 'CLEAR_HISTORY_WINDOW') {
       await clearRecentHistory(settings);
       return sendResponse({ ok: true });
+    }
+
+    if (msg?.type === 'PLAN_LAYOUT_PATCH') {
+      if (!settings.developerDebugMode) {
+        return sendResponse({ ok: false, error: 'Developer Debug Mode is disabled' });
+      }
+      const instruction = String(msg.instruction || '').trim();
+      if (!instruction) {
+        return sendResponse({ ok: false, error: 'Instruction required' });
+      }
+      const events = await getEvents();
+      events.sort((a,b)=>a.ts-b.ts);
+      const session = buildTimelineSession(events);
+      try {
+        const result = makePatchFromTimeline(session, instruction, msg.probe);
+        return sendResponse({ ok: true, result });
+      } catch (error) {
+        console.error('PLAN_LAYOUT_PATCH failed', error);
+        return sendResponse({ ok: false, error: String(error) });
+      }
     }
 
     if (msg?.type === 'OPEN_AND_SEND') {
