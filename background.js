@@ -199,7 +199,7 @@ function domainAllowed(url, settings){
   const blocked = settings.blockList.some((b) => host.includes(b) || url.includes(b));
   if (blocked) return false;
   if (settings.allowList.length === 0) return true;
-  return settings.allowList.some((a) => host.includes(a) || url.includes(a));
+  return settings.allowList.some((a) => host.includes(a));
 }
 
 function isAbsoluteUrl(value){
