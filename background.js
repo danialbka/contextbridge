@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS = {
   blockList: ["accounts.google.com","paypal.com","bank","chat.openai.com/auth"],
   includeHistoryWindowMinutes: 45,
   timeFormat: 'local',
+  developerDebugMode: false,
 };
 
 function getHistoryDb(){
@@ -195,10 +196,197 @@ function urlDomain(u){ try { return new URL(u).hostname; } catch { return ''; } 
 function domainAllowed(url, settings){
   const host = urlDomain(url);
   if (!host) return false;
-  const blocked = settings.blockList.some(b => host.includes(b) || url.includes(b));
+  const blocked = settings.blockList.some((b) => host.includes(b) || url.includes(b));
   if (blocked) return false;
   if (settings.allowList.length === 0) return true;
-  return settings.allowList.some(a => host.includes(a));
+  return settings.allowList.some((a) => host.includes(a) || url.includes(a));
+}
+
+function isAbsoluteUrl(value){
+  if (typeof value !== 'string' || !value) return false;
+  try {
+    const parsed = new URL(value);
+    return !!parsed.protocol && !!parsed.hostname;
+  } catch {
+    return false;
+  }
+}
+
+function resolveUrl(candidate, base){
+  if (typeof candidate !== 'string' || !candidate) return '';
+  if (isAbsoluteUrl(candidate)) return candidate;
+  try {
+    if (base && isAbsoluteUrl(base)) {
+      return new URL(candidate, base).href;
+    }
+  } catch {}
+  return '';
+}
+
+function primaryEventUrl(ev = {}, sender = {}){
+  const base = sender?.tab?.url;
+  const options = [ev.url, ev.pageUrl, ev.origin];
+  for (const value of options){
+    const resolved = resolveUrl(value, base);
+    if (resolved) return resolved;
+  }
+  if (base && isAbsoluteUrl(base)) return base;
+  return '';
+}
+
+function formatInteractionTimestamp(ts, mode = 'local'){
+  const value = Number(ts);
+  if (!Number.isFinite(value)) return '—';
+  const d = new Date(value);
+  if (mode === 'iso') return d.toISOString();
+  const opts = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+  const base = d.toLocaleTimeString(undefined, opts);
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${base}.${ms}`;
+}
+
+function formatDurationMs(ms){
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  return `${Math.round(value)} ms`;
+}
+
+function formatBytesValue(bytes){
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  if (value >= 1024){
+    const kb = value / 1024;
+    const rounded = kb >= 10 ? Math.round(kb) : Math.round(kb * 10) / 10;
+    return `${rounded} KB`;
+  }
+  return `${Math.round(value)} B`;
+}
+
+function formatInteractionDetail(ev){
+  if (!ev || typeof ev.type !== 'string') return '';
+  if (ev.type === 'net'){
+    const kind = (ev.kind || 'net').toUpperCase();
+    const method = ev.method ? `${String(ev.method).toUpperCase()} ` : '';
+    const target = ev.url || ev.fullUrl || ev.path || '';
+    let line = `${kind} ${method}${target}`.trim();
+    if (typeof ev.status !== 'undefined') line += ` ${ev.status}`;
+    const dur = formatDurationMs(ev.dur_ms ?? ev.duration_ms ?? ev.duration);
+    if (dur) line += ` in ${dur}`;
+    const size = formatBytesValue(ev.resp_bytes ?? ev.response_bytes ?? ev.bytes);
+    if (size) line += `, ${size}`;
+    if (ev.redacted) line += ' (redacted)';
+    return line;
+  }
+  if (ev.type === 'console' || ev.type === 'error'){
+    const level = ev.type === 'error' ? 'ERROR' : `Console.${(ev.level || 'log').toLowerCase()}`;
+    const msg = ev.msg || ev.message || '';
+    let line = `${level}: ${msg}`.trim();
+    let location = '';
+    if (ev.stack){
+      const firstLine = String(ev.stack).split('\n')[0];
+      if (firstLine) location = firstLine;
+    } else if (ev.src){
+      location = ev.src;
+      if (ev.line) location += `:${ev.line}`;
+      if (ev.col) location += `:${ev.col}`;
+    }
+    if (location) line += ` (${location})`;
+    return line;
+  }
+  if (ev.type === 'route'){
+    const from = ev.from || '—';
+    const to = ev.to || '—';
+    const mode = ev.mode ? ` (${ev.mode})` : '';
+    return `Route ${from} ➜ ${to}${mode}`.trim();
+  }
+  if (ev.type === 'dom'){
+    const pieces = [];
+    if (Number.isFinite(ev.adds)) pieces.push(`adds ${ev.adds}`);
+    if (Number.isFinite(ev.removes)) pieces.push(`removes ${ev.removes}`);
+    return pieces.length ? `DOM ${pieces.join(', ')}` : 'DOM change';
+  }
+  if (ev.type === 'perf'){
+    const metric = ev.metric || 'perf';
+    const dur = formatDurationMs(ev.value_ms ?? ev.value ?? ev.duration_ms);
+    return dur ? `Perf ${metric}: ${dur}` : `Perf ${metric}`;
+  }
+  if (ev.type === 'click'){
+    return '';
+  }
+  return `${String(ev.type).toUpperCase()} event`;
+}
+
+function buildInteractionTimeline(events, settings){
+  const debugEvents = (events || []).filter((ev) => ev && typeof ev.type === 'string');
+  if (!debugEvents.length) return [];
+
+  const groups = new Map();
+  debugEvents.forEach((ev, idx) => {
+    let key = null;
+    if (ev.type === 'click' && ev.id) key = ev.id;
+    else if (ev.click_id) key = ev.click_id;
+    else key = `orphan-${idx}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(ev);
+  });
+
+  const sortedGroups = Array.from(groups.values()).sort((a, b) => {
+    const aTs = Math.min(...a.map((ev) => Number(ev.ts) || Number.POSITIVE_INFINITY));
+    const bTs = Math.min(...b.map((ev) => Number(ev.ts) || Number.POSITIVE_INFINITY));
+    return aTs - bTs;
+  });
+
+  const lines = [];
+  sortedGroups.forEach((group) => {
+    const ordered = group.slice().sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+    const primary = ordered.find((ev) => ev.type === 'click') || ordered[0];
+    if (!primary) return;
+    const tsLabel = formatInteractionTimestamp(primary.ts, settings.timeFormat);
+    const headerParts = [];
+    if (primary.type === 'click'){
+      headerParts.push('**CLICK**');
+      if (primary.selector) headerParts.push(`\`${primary.selector}\``);
+      const text = primary.text || primary.title;
+      if (text) headerParts.push(`“${text}”`);
+      const location = primary.url || primary.pageUrl;
+      if (location) headerParts.push(`@ \`${location}\``);
+    } else {
+      const label = `**${String(primary.type).toUpperCase()}**`;
+      const detail = formatInteractionDetail(primary);
+      headerParts.push(detail ? `${label} ${detail}` : label);
+    }
+    lines.push(`* [${tsLabel}] ${headerParts.join(' ')}`.trim());
+    ordered.forEach((ev) => {
+      if (ev === primary) return;
+      const detail = formatInteractionDetail(ev);
+      if (detail) lines.push(`  ↳ ${detail}`);
+    });
+  });
+
+  return lines;
+}
+
+function sanitizeEventForJson(ev){
+  const clean = {};
+  if (!ev || typeof ev !== 'object') return clean;
+  Object.entries(ev).forEach(([key, value]) => {
+    if (typeof value === 'undefined' || typeof value === 'function') return;
+    clean[key] = value;
+  });
+  return clean;
+}
+
+function buildEventStreamJson(events){
+  const debugEvents = (events || []).filter((ev) => ev && typeof ev.type === 'string');
+  if (!debugEvents.length) return '';
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const payload = {
+    event_version: '1.0',
+    locale_tz: tz,
+    exported_at: new Date().toISOString(),
+    events: debugEvents.map((ev) => sanitizeEventForJson(ev)),
+  };
+  return JSON.stringify(payload, null, 2);
 }
 function parseSearch(u){
   try {
@@ -269,9 +457,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     const settings = await getSettings();
     if (msg?.type === 'EVENT') {
-      const ev = msg.payload;
-      if (!domainAllowed(ev.url || '', settings)) return sendResponse({ ok: true });
-      await pushEvent({ ...ev, ts: nowTs(), tabId: sender.tab?.id ?? -1 });
+      const ev = msg.payload || {};
+      const resolvedUrl = primaryEventUrl(ev, sender);
+      if (!domainAllowed(resolvedUrl, settings)) return sendResponse({ ok: true });
+      const stored = { ...ev, ts: nowTs(), tabId: sender.tab?.id ?? -1 };
+      if (!stored.pageUrl && resolvedUrl) stored.pageUrl = resolvedUrl;
+      await pushEvent(stored);
       return sendResponse({ ok: true });
     }
 
@@ -376,6 +567,22 @@ async function composeReport(){
       const label = ev.label ? ` (${ev.label})` : '';
       const v = (ev.value||'').slice(0, 400).replaceAll('\n',' ');
       lines.push(`- [${t}] INPUT${label}:${base}\n    -> ${v}`);
+    }
+  }
+  if (settings.developerDebugMode){
+    const timelineLines = buildInteractionTimeline(events, settings);
+    if (timelineLines.length){
+      lines.push('');
+      lines.push('## Interaction Timeline (Clicks • Network • Console • Route)');
+      timelineLines.forEach((line) => lines.push(line));
+    }
+    const eventStreamJson = buildEventStreamJson(events);
+    if (eventStreamJson){
+      lines.push('');
+      lines.push('## Event Stream (JSON)');
+      lines.push('```json');
+      lines.push(eventStreamJson);
+      lines.push('```');
     }
   }
   lines.push('\n---\n');
