@@ -12,6 +12,205 @@ const confirmClear = document.getElementById('confirmClear');
 const cancelClear = document.getElementById('cancelClear');
 let confirmOpen = false;
 let currentDays = [];
+const canUseClipboard = !!(navigator.clipboard && navigator.clipboard.writeText);
+const copyFeedbackTimers = new WeakMap();
+
+function setCopyFeedback(button, message){
+  if (!button) return;
+  const original = button.dataset.originalLabel || button.textContent;
+  if (!button.dataset.originalLabel){
+    button.dataset.originalLabel = original;
+  }
+  button.textContent = message;
+  button.disabled = true;
+  if (copyFeedbackTimers.has(button)){
+    clearTimeout(copyFeedbackTimers.get(button));
+  }
+  const timeout = setTimeout(() => {
+    button.textContent = button.dataset.originalLabel || original || 'Copy';
+    button.disabled = false;
+    copyFeedbackTimers.delete(button);
+  }, 1500);
+  copyFeedbackTimers.set(button, timeout);
+}
+
+async function copyTextToClipboard(text, button){
+  if (!canUseClipboard || !text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    setCopyFeedback(button, 'Copied!');
+  } catch (error){
+    console.error('Copy failed', error);
+    setCopyFeedback(button, 'Copy failed');
+  }
+}
+
+function createPreBlock(text){
+  const pre = document.createElement('pre');
+  pre.textContent = text;
+  return pre;
+}
+
+function createDebugBlock({ title, subtitle, copyText, copyLabel = 'Copy', content }){
+  const block = document.createElement('div');
+  block.className = 'debug-block';
+
+  const header = document.createElement('div');
+  header.className = 'debug-block-header';
+
+  const heading = document.createElement('h3');
+  heading.textContent = title;
+  header.appendChild(heading);
+
+  if (copyText && canUseClipboard){
+    const controls = document.createElement('div');
+    controls.className = 'debug-block-controls';
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'ghost debug-copy';
+    copyBtn.textContent = copyLabel;
+    copyBtn.addEventListener('click', async () => {
+      await copyTextToClipboard(copyText, copyBtn);
+    });
+    controls.appendChild(copyBtn);
+    header.appendChild(controls);
+  }
+
+  block.appendChild(header);
+
+  if (subtitle){
+    const note = document.createElement('p');
+    note.className = 'debug-note';
+    note.textContent = subtitle;
+    block.appendChild(note);
+  }
+
+  if (content){
+    block.appendChild(content);
+  }
+
+  return block;
+}
+
+function createGraphSummary(summary){
+  if (!summary) return null;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'debug-summary';
+
+  const stats = document.createElement('p');
+  stats.className = 'debug-summary-stats';
+  stats.textContent = `Pages: ${summary.pageCount ?? 0} • Nodes: ${summary.nodeCount ?? 0}`;
+  wrapper.appendChild(stats);
+
+  if (Array.isArray(summary.topPages) && summary.topPages.length){
+    const list = document.createElement('ul');
+    list.className = 'debug-summary-list';
+    summary.topPages.slice(0, 5).forEach((page) => {
+      const item = document.createElement('li');
+      const label = page.title ? `${page.title} — ${page.url}` : page.url;
+      item.textContent = `${label} (${page.nodeCount ?? 0} nodes)`;
+      list.appendChild(item);
+    });
+    wrapper.appendChild(list);
+  }
+
+  return wrapper;
+}
+
+function prepareDeveloperDebug(debug = {}){
+  if (!debug || typeof debug !== 'object') return null;
+  const eventStream = typeof debug.eventStreamJson === 'string' ? debug.eventStreamJson.trim() : '';
+  const timelineSession = typeof debug.timelineSessionJson === 'string' ? debug.timelineSessionJson.trim() : '';
+  const uiGraph = typeof debug.uiGraphJson === 'string' ? debug.uiGraphJson.trim() : '';
+  const layoutProbeSnippet = typeof debug.layoutProbeSnippet === 'string' ? debug.layoutProbeSnippet.trim() : '';
+  const uiGraphSummary = debug.uiGraphSummary && typeof debug.uiGraphSummary === 'object'
+    ? debug.uiGraphSummary
+    : null;
+
+  if (!eventStream && !timelineSession && !uiGraph && !layoutProbeSnippet) return null;
+  return {
+    eventStream,
+    timelineSession,
+    uiGraph,
+    layoutProbeSnippet,
+    uiGraphSummary,
+  };
+}
+
+function renderDeveloperDebug(debugInfo){
+  if (!debugInfo) return;
+  const section = document.createElement('section');
+  section.className = 'day debug';
+
+  const header = document.createElement('header');
+  const titleWrapper = document.createElement('div');
+  const title = document.createElement('h2');
+  title.textContent = 'Developer Debug Export';
+  titleWrapper.appendChild(title);
+  const subtitle = document.createElement('p');
+  subtitle.className = 'debug-subtitle';
+  subtitle.textContent = 'Raw timeline, UI graph, and helper snippets available while Developer Debug Mode is enabled.';
+  titleWrapper.appendChild(subtitle);
+  header.appendChild(titleWrapper);
+  section.appendChild(header);
+
+  const content = document.createElement('div');
+  content.className = 'debug-content';
+
+  if (debugInfo.uiGraphSummary){
+    const summaryContent = createGraphSummary(debugInfo.uiGraphSummary);
+    if (summaryContent){
+      content.appendChild(createDebugBlock({
+        title: 'UI Graph Summary',
+        subtitle: 'Inferred layout nodes from recent click events.',
+        content: summaryContent,
+      }));
+    }
+  }
+
+  if (debugInfo.timelineSession){
+    content.appendChild(createDebugBlock({
+      title: 'Timeline Session (JSON)',
+      subtitle: 'Normalized timeline events ready for LLM ingestion.',
+      copyText: debugInfo.timelineSession,
+      copyLabel: 'Copy JSON',
+      content: createPreBlock(debugInfo.timelineSession),
+    }));
+  }
+
+  if (debugInfo.uiGraph){
+    content.appendChild(createDebugBlock({
+      title: 'UI Graph (JSON)',
+      subtitle: 'Semantic UI map reconstructed from click selectors.',
+      copyText: debugInfo.uiGraph,
+      copyLabel: 'Copy JSON',
+      content: createPreBlock(debugInfo.uiGraph),
+    }));
+  }
+
+  if (debugInfo.eventStream){
+    content.appendChild(createDebugBlock({
+      title: 'Event Stream (JSON)',
+      subtitle: 'Full developer debug event stream with clicks, network, and console data.',
+      copyText: debugInfo.eventStream,
+      copyLabel: 'Copy JSON',
+      content: createPreBlock(debugInfo.eventStream),
+    }));
+  }
+
+  if (debugInfo.layoutProbeSnippet){
+    content.appendChild(createDebugBlock({
+      title: 'Layout Probe Snippet',
+      subtitle: 'Optional helper—run in the page console to capture computed styles for a selector.',
+      copyText: debugInfo.layoutProbeSnippet,
+      copyLabel: 'Copy snippet',
+      content: createPreBlock(debugInfo.layoutProbeSnippet),
+    }));
+  }
+
+  section.appendChild(content);
+  sectionsEl.appendChild(section);
+}
 
 const ROLE_OPTIONS = [
   'Therapist',
@@ -98,31 +297,43 @@ function clearView(){
   sectionsEl.innerHTML = '';
 }
 
-function renderDays(days){
+function renderDays(days, debug){
   clearView();
   currentDays = [];
   updateExportState();
-  if (!days.length){
+  const debugInfo = prepareDeveloperDebug(debug);
+  const hasDebug = !!debugInfo;
+  const hasDays = Array.isArray(days) && days.length > 0;
+
+  if (!hasDays && !hasDebug){
     showEmpty(true);
     return;
   }
 
   showEmpty(false);
-  const sorted = [...days].sort((a,b)=>b.sortValue - a.sortValue);
-  currentDays = sorted;
-  updateExportState();
+  linksEl.hidden = !hasDays;
 
-  sorted.forEach((day) => {
-    const link = document.createElement('a');
-    link.href = `#${day.id}`;
-    link.textContent = day.label;
-    linksEl.appendChild(link);
-  });
-  linksEl.hidden = false;
+  if (hasDays){
+    const sorted = [...days].sort((a,b)=>b.sortValue - a.sortValue);
+    currentDays = sorted;
+    updateExportState();
 
-  sorted.forEach((day) => {
-    sectionsEl.appendChild(buildDaySection(day));
-  });
+    sorted.forEach((day) => {
+      const link = document.createElement('a');
+      link.href = `#${day.id}`;
+      link.textContent = day.label;
+      linksEl.appendChild(link);
+    });
+    linksEl.hidden = false;
+
+    sorted.forEach((day) => {
+      sectionsEl.appendChild(buildDaySection(day));
+    });
+  }
+
+  if (hasDebug){
+    renderDeveloperDebug(debugInfo);
+  }
 }
 
 function buildDaySection(day){
@@ -251,13 +462,24 @@ function buildDaySection(day){
   const copyMenuContext = createRoleMenuContext(copyRoleMenu, copyToggle);
   const sendMenuContext = createRoleMenuContext(sendRoleMenu, sendToggle);
 
-  const dayText = Array.isArray(day.lines)
-    ? day.lines.join('\n')
-    : (typeof day.text === 'string' ? day.text : '');
+  const historyLines = Array.isArray(day.historyLines)
+    ? day.historyLines
+    : (Array.isArray(day.lines) ? day.lines : []);
+  const timelineLines = Array.isArray(day.timelineLines)
+    ? day.timelineLines
+    : [];
+  const historyText = historyLines.join('\n');
+  const timelineText = timelineLines.join('\n');
+  const hasHistory = historyLines.length > 0;
+  const hasTimeline = timelineLines.length > 0;
 
   function buildDayText(role){
     const prefix = role ? `[Role: ${role}]\n\n` : '';
-    return `${prefix}${dayText}`;
+    const segments = [];
+    if (hasHistory) segments.push(historyText);
+    if (hasTimeline) segments.push(`Developer Debug Timeline:\n${timelineText}`);
+    const combined = segments.join('\n\n');
+    return `${prefix}${combined}`.trim();
   }
 
   async function copyDay(role){
@@ -336,9 +558,23 @@ function buildDaySection(day){
   header.appendChild(controls);
   article.appendChild(header);
 
-  const pre = document.createElement('pre');
-  pre.textContent = dayText;
-  article.appendChild(pre);
+  if (hasHistory){
+    const historyPre = document.createElement('pre');
+    historyPre.textContent = historyText;
+    article.appendChild(historyPre);
+  }
+
+  if (hasTimeline){
+    const timelineWrapper = document.createElement('div');
+    timelineWrapper.className = 'debug-timeline';
+    const heading = document.createElement('h3');
+    heading.textContent = 'Developer Debug Timeline';
+    timelineWrapper.appendChild(heading);
+    const timelinePre = document.createElement('pre');
+    timelinePre.textContent = timelineText;
+    timelineWrapper.appendChild(timelinePre);
+    article.appendChild(timelineWrapper);
+  }
 
   return article;
 }
@@ -436,7 +672,7 @@ function loadDays(){
       showEmpty(true);
       return;
     }
-    renderDays(resp.days || []);
+    renderDays(resp.days || [], resp.debug);
   });
 }
 

@@ -43,3 +43,18 @@ pre { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberatio
 .dialog h2 { margin: 0 0 6px; font-size: 18px; }
 .dialog p { margin: 0 0 16px; font-size: 13px; color: #444; }
 .dialog-buttons { display: flex; justify-content: flex-end; gap: 10px; }
+.day.debug header { margin-bottom: 12px; }
+.day.debug h2 { font-size: 18px; }
+.day.debug .debug-subtitle { margin: 6px 0 0; font-size: 13px; color: #555; }
+.debug-content { display: grid; gap: 16px; }
+.debug-block h3 { margin: 0 0 8px; font-size: 14px; color: #222; }
+.debug-timeline { margin-top: 16px; display: grid; gap: 8px; }
+.debug-timeline h3 { margin: 0; font-size: 14px; color: #222; }
+.debug-block-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.debug-block-controls { display: flex; align-items: center; gap: 8px; }
+.debug-copy { padding: 6px 10px; font-size: 12px; }
+.debug-note { margin: 4px 0 0; font-size: 12px; color: #555; }
+.debug-summary { display: grid; gap: 6px; font-size: 12px; color: #333; }
+.debug-summary-stats { margin: 0; font-weight: 600; }
+.debug-summary-list { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+.debug-summary-list li { margin: 0; }
