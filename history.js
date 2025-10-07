@@ -92,6 +92,48 @@ function createDebugBlock({ title, subtitle, copyText, copyLabel = 'Copy', conte
   return block;
 }
 
+function stableJsonStringify(value){
+  if (Array.isArray(value)){
+    return `[${value.map((item) => stableJsonStringify(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object'){
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableJsonStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function mergeTimelineEvents(primaryEvents = [], secondaryEvents = []){
+  const merged = [];
+  const seen = new Set();
+  const pushEvent = (event) => {
+    if (!event || typeof event !== 'object') return;
+    const clone = JSON.parse(JSON.stringify(event));
+    const key = stableJsonStringify(clone);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(clone);
+  };
+  primaryEvents.forEach(pushEvent);
+  secondaryEvents.forEach(pushEvent);
+  merged.sort((a, b) => {
+    const aTs = Number(a.ts) || 0;
+    const bTs = Number(b.ts) || 0;
+    return aTs - bTs;
+  });
+  return merged;
+}
+
+function safeParseJson(text){
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (error){
+    console.error('Developer debug JSON parse failed', error);
+    return null;
+  }
+}
+
 function createGraphSummary(summary){
   if (!summary) return null;
   const wrapper = document.createElement('div');
@@ -120,7 +162,7 @@ function createGraphSummary(summary){
 function prepareDeveloperDebug(debug = {}){
   if (!debug || typeof debug !== 'object') return null;
   const eventStream = typeof debug.eventStreamJson === 'string' ? debug.eventStreamJson.trim() : '';
-  const timelineSession = typeof debug.timelineSessionJson === 'string' ? debug.timelineSessionJson.trim() : '';
+  let timelineSession = typeof debug.timelineSessionJson === 'string' ? debug.timelineSessionJson.trim() : '';
   const uiGraph = typeof debug.uiGraphJson === 'string' ? debug.uiGraphJson.trim() : '';
   const layoutProbeSnippet = typeof debug.layoutProbeSnippet === 'string' ? debug.layoutProbeSnippet.trim() : '';
   const uiGraphSummary = debug.uiGraphSummary && typeof debug.uiGraphSummary === 'object'
@@ -128,12 +170,54 @@ function prepareDeveloperDebug(debug = {}){
     : null;
 
   if (!eventStream && !timelineSession && !uiGraph && !layoutProbeSnippet) return null;
+
+  const eventStreamObj = safeParseJson(eventStream);
+  const timelineSessionObj = safeParseJson(timelineSession);
+  const uiGraphObj = safeParseJson(uiGraph);
+  let combinedJson = '';
+  let mergedTimeline = null;
+
+  try {
+    const combined = {};
+    if (timelineSessionObj || eventStreamObj){
+      const baseTimeline = timelineSessionObj
+        ? { ...timelineSessionObj }
+        : {
+            locale_tz: eventStreamObj?.locale_tz,
+            exported_at: eventStreamObj?.exported_at,
+            events: [],
+          };
+      const primaryEvents = Array.isArray(timelineSessionObj?.events) ? timelineSessionObj.events : [];
+      const secondaryEvents = Array.isArray(eventStreamObj?.events) ? eventStreamObj.events : [];
+      baseTimeline.events = mergeTimelineEvents(primaryEvents, secondaryEvents);
+      combined.timeline_session = baseTimeline;
+      mergedTimeline = baseTimeline;
+    }
+    if (eventStreamObj) combined.event_stream = eventStreamObj;
+    if (uiGraphObj) combined.ui_graph = uiGraphObj;
+    if (layoutProbeSnippet) combined.layout_probe_snippet = layoutProbeSnippet;
+    if (Object.keys(combined).length){
+      combinedJson = JSON.stringify(combined, null, 2);
+    }
+  } catch (error){
+    console.error('Failed to build combined developer debug JSON', error);
+  }
+
+  if (combinedJson && mergedTimeline){
+    try {
+      timelineSession = JSON.stringify(mergedTimeline, null, 2);
+    } catch (error){
+      console.error('Failed to serialize merged timeline session', error);
+    }
+  }
+
   return {
     eventStream,
     timelineSession,
     uiGraph,
     layoutProbeSnippet,
     uiGraphSummary,
+    combinedJson,
   };
 }
 
@@ -152,6 +236,19 @@ function renderDeveloperDebug(debugInfo){
   subtitle.textContent = 'Raw timeline, UI graph, and helper snippets available while Developer Debug Mode is enabled.';
   titleWrapper.appendChild(subtitle);
   header.appendChild(titleWrapper);
+  if (debugInfo.combinedJson && canUseClipboard){
+    const actions = document.createElement('div');
+    actions.className = 'debug-block-controls';
+    const copyAllBtn = document.createElement('button');
+    copyAllBtn.type = 'button';
+    copyAllBtn.className = 'ghost debug-copy';
+    copyAllBtn.textContent = 'Copy all JSON';
+    copyAllBtn.addEventListener('click', async () => {
+      await copyTextToClipboard(debugInfo.combinedJson, copyAllBtn);
+    });
+    actions.appendChild(copyAllBtn);
+    header.appendChild(actions);
+  }
   section.appendChild(header);
 
   const content = document.createElement('div');
