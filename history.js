@@ -15,17 +15,11 @@ let currentDays = [];
 
 function prepareDeveloperDebug(debug = {}){
   if (!debug || typeof debug !== 'object') return null;
-  const timelineLines = Array.isArray(debug.timelineLines)
-    ? debug.timelineLines.map((line) => (typeof line === 'string' ? line : '')).filter((line) => line.trim())
-    : [];
   const eventStream = typeof debug.eventStreamJson === 'string'
     ? debug.eventStreamJson.trim()
     : '';
-  if (!timelineLines.length && !eventStream) return null;
-  return {
-    timelineText: timelineLines.join('\n'),
-    eventStream,
-  };
+  if (!eventStream) return null;
+  return { eventStream };
 }
 
 function renderDeveloperDebug(debugInfo){
@@ -36,11 +30,11 @@ function renderDeveloperDebug(debugInfo){
   const header = document.createElement('header');
   const titleWrapper = document.createElement('div');
   const title = document.createElement('h2');
-  title.textContent = 'Developer Debug Data';
+  title.textContent = 'Developer Event Stream';
   titleWrapper.appendChild(title);
   const subtitle = document.createElement('p');
   subtitle.className = 'debug-subtitle';
-  subtitle.textContent = 'Available because Developer Debug Mode is enabled.';
+  subtitle.textContent = 'Raw JSON export available while Developer Debug Mode is enabled.';
   titleWrapper.appendChild(subtitle);
   header.appendChild(titleWrapper);
   section.appendChild(header);
@@ -48,29 +42,15 @@ function renderDeveloperDebug(debugInfo){
   const content = document.createElement('div');
   content.className = 'debug-content';
 
-  if (debugInfo.timelineText){
-    const timelineBlock = document.createElement('div');
-    timelineBlock.className = 'debug-block';
-    const timelineHeading = document.createElement('h3');
-    timelineHeading.textContent = 'Interaction Timeline';
-    timelineBlock.appendChild(timelineHeading);
-    const timelinePre = document.createElement('pre');
-    timelinePre.textContent = debugInfo.timelineText;
-    timelineBlock.appendChild(timelinePre);
-    content.appendChild(timelineBlock);
-  }
-
-  if (debugInfo.eventStream){
-    const eventBlock = document.createElement('div');
-    eventBlock.className = 'debug-block';
-    const eventHeading = document.createElement('h3');
-    eventHeading.textContent = 'Event Stream (JSON)';
-    eventBlock.appendChild(eventHeading);
-    const eventPre = document.createElement('pre');
-    eventPre.textContent = debugInfo.eventStream;
-    eventBlock.appendChild(eventPre);
-    content.appendChild(eventBlock);
-  }
+  const eventBlock = document.createElement('div');
+  eventBlock.className = 'debug-block';
+  const eventHeading = document.createElement('h3');
+  eventHeading.textContent = 'Event Stream (JSON)';
+  eventBlock.appendChild(eventHeading);
+  const eventPre = document.createElement('pre');
+  eventPre.textContent = debugInfo.eventStream;
+  eventBlock.appendChild(eventPre);
+  content.appendChild(eventBlock);
 
   section.appendChild(content);
   sectionsEl.appendChild(section);
@@ -177,29 +157,27 @@ function renderDays(days, debug){
   showEmpty(false);
   linksEl.hidden = !hasDays;
 
+  if (hasDays){
+    const sorted = [...days].sort((a,b)=>b.sortValue - a.sortValue);
+    currentDays = sorted;
+    updateExportState();
+
+    sorted.forEach((day) => {
+      const link = document.createElement('a');
+      link.href = `#${day.id}`;
+      link.textContent = day.label;
+      linksEl.appendChild(link);
+    });
+    linksEl.hidden = false;
+
+    sorted.forEach((day) => {
+      sectionsEl.appendChild(buildDaySection(day));
+    });
+  }
+
   if (hasDebug){
     renderDeveloperDebug(debugInfo);
   }
-
-  if (!hasDays){
-    return;
-  }
-
-  const sorted = [...days].sort((a,b)=>b.sortValue - a.sortValue);
-  currentDays = sorted;
-  updateExportState();
-
-  sorted.forEach((day) => {
-    const link = document.createElement('a');
-    link.href = `#${day.id}`;
-    link.textContent = day.label;
-    linksEl.appendChild(link);
-  });
-  linksEl.hidden = false;
-
-  sorted.forEach((day) => {
-    sectionsEl.appendChild(buildDaySection(day));
-  });
 }
 
 function buildDaySection(day){
@@ -328,13 +306,24 @@ function buildDaySection(day){
   const copyMenuContext = createRoleMenuContext(copyRoleMenu, copyToggle);
   const sendMenuContext = createRoleMenuContext(sendRoleMenu, sendToggle);
 
-  const dayText = Array.isArray(day.lines)
-    ? day.lines.join('\n')
-    : (typeof day.text === 'string' ? day.text : '');
+  const historyLines = Array.isArray(day.historyLines)
+    ? day.historyLines
+    : (Array.isArray(day.lines) ? day.lines : []);
+  const timelineLines = Array.isArray(day.timelineLines)
+    ? day.timelineLines
+    : [];
+  const historyText = historyLines.join('\n');
+  const timelineText = timelineLines.join('\n');
+  const hasHistory = historyLines.length > 0;
+  const hasTimeline = timelineLines.length > 0;
 
   function buildDayText(role){
     const prefix = role ? `[Role: ${role}]\n\n` : '';
-    return `${prefix}${dayText}`;
+    const segments = [];
+    if (hasHistory) segments.push(historyText);
+    if (hasTimeline) segments.push(`Developer Debug Timeline:\n${timelineText}`);
+    const combined = segments.join('\n\n');
+    return `${prefix}${combined}`.trim();
   }
 
   async function copyDay(role){
@@ -413,9 +402,23 @@ function buildDaySection(day){
   header.appendChild(controls);
   article.appendChild(header);
 
-  const pre = document.createElement('pre');
-  pre.textContent = dayText;
-  article.appendChild(pre);
+  if (hasHistory){
+    const historyPre = document.createElement('pre');
+    historyPre.textContent = historyText;
+    article.appendChild(historyPre);
+  }
+
+  if (hasTimeline){
+    const timelineWrapper = document.createElement('div');
+    timelineWrapper.className = 'debug-timeline';
+    const heading = document.createElement('h3');
+    heading.textContent = 'Developer Debug Timeline';
+    timelineWrapper.appendChild(heading);
+    const timelinePre = document.createElement('pre');
+    timelinePre.textContent = timelineText;
+    timelineWrapper.appendChild(timelinePre);
+    article.appendChild(timelineWrapper);
+  }
 
   return article;
 }

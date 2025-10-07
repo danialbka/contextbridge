@@ -141,13 +141,17 @@ async function loadStoredHistoryDays(settings){
     return days
       .filter((d) => Array.isArray(d.lines) && d.lines.length)
       .sort((a,b)=>a.sortValue - b.sortValue)
-      .map((day) => ({
-        id: `day-${day.sortValue}`,
-        label: fmtDay(day.sortValue, settings.timeFormat),
-        sortValue: day.sortValue,
-        lines: day.lines.slice(),
-        text: day.lines.join('\n'),
-      }));
+      .map((day) => {
+        const lines = day.lines.slice();
+        return {
+          id: `day-${day.sortValue}`,
+          label: fmtDay(day.sortValue, settings.timeFormat),
+          sortValue: day.sortValue,
+          lines,
+          historyLines: lines.slice(),
+          text: lines.join('\n'),
+        };
+      });
   } catch (e){
     console.error('Load stored history days failed', e);
     return [];
@@ -316,7 +320,7 @@ function formatInteractionDetail(ev){
   return `${String(ev.type).toUpperCase()} event`;
 }
 
-function buildInteractionTimeline(events, settings){
+function buildInteractionTimelineDays(events, settings){
   const debugEvents = (events || []).filter((ev) => ev && typeof ev.type === 'string');
   if (!debugEvents.length) return [];
 
@@ -336,12 +340,14 @@ function buildInteractionTimeline(events, settings){
     return aTs - bTs;
   });
 
-  const lines = [];
+  const dayMap = new Map();
   sortedGroups.forEach((group) => {
     const ordered = group.slice().sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
     const primary = ordered.find((ev) => ev.type === 'click') || ordered[0];
     if (!primary) return;
-    const tsLabel = formatInteractionTimestamp(primary.ts, settings.timeFormat);
+    const tsValue = Number(primary.ts);
+    const ts = Number.isFinite(tsValue) ? tsValue : Date.now();
+    const tsLabel = formatInteractionTimestamp(ts, settings.timeFormat);
     const headerParts = [];
     if (primary.type === 'click'){
       headerParts.push('**CLICK**');
@@ -355,15 +361,25 @@ function buildInteractionTimeline(events, settings){
       const detail = formatInteractionDetail(primary);
       headerParts.push(detail ? `${label} ${detail}` : label);
     }
-    lines.push(`* [${tsLabel}] ${headerParts.join(' ')}`.trim());
+    const bucket = dayBucket(ts);
+    if (!dayMap.has(bucket.sortValue)){
+      dayMap.set(bucket.sortValue, { ...bucket, lines: [] });
+    }
+    const entry = dayMap.get(bucket.sortValue);
+    entry.lines.push(`* [${tsLabel}] ${headerParts.join(' ')}`.trim());
     ordered.forEach((ev) => {
       if (ev === primary) return;
       const detail = formatInteractionDetail(ev);
-      if (detail) lines.push(`  ↳ ${detail}`);
+      if (detail) entry.lines.push(`  ↳ ${detail}`);
     });
   });
 
-  return lines;
+  return Array.from(dayMap.values()).sort((a, b) => a.sortValue - b.sortValue);
+}
+
+function buildInteractionTimeline(events, settings){
+  const days = buildInteractionTimelineDays(events, settings);
+  return days.flatMap((day) => day.lines.slice());
 }
 
 function sanitizeEventForJson(ev){
@@ -387,6 +403,53 @@ function buildEventStreamJson(events){
     events: debugEvents.map((ev) => sanitizeEventForJson(ev)),
   };
   return JSON.stringify(payload, null, 2);
+}
+
+function mergeHistoryAndTimelineDays(historyDays, timelineDays, settings){
+  const map = new Map();
+  const result = [];
+
+  (historyDays || []).forEach((day) => {
+    const historyLines = Array.isArray(day.historyLines)
+      ? day.historyLines.slice()
+      : (Array.isArray(day.lines) ? day.lines.slice() : []);
+    const base = {
+      ...day,
+      historyLines,
+      timelineLines: Array.isArray(day.timelineLines) ? day.timelineLines.slice() : [],
+    };
+    base.lines = historyLines.slice();
+    base.text = historyLines.join('\n');
+    map.set(day.sortValue, base);
+    result.push(base);
+  });
+
+  (timelineDays || []).forEach((timelineDay) => {
+    const lines = Array.isArray(timelineDay.lines) ? timelineDay.lines.slice() : [];
+    if (!lines.length) return;
+    const key = timelineDay.sortValue;
+    if (map.has(key)){
+      const existing = map.get(key);
+      existing.timelineLines = (existing.timelineLines || []).concat(lines);
+    } else {
+      const label = fmtDay(key, settings.timeFormat);
+      const day = {
+        id: `day-${key}`,
+        label,
+        sortValue: key,
+        dayKey: timelineDay.dayKey,
+        lines: [],
+        text: '',
+        historyLines: [],
+        timelineLines: lines,
+      };
+      map.set(key, day);
+      result.push(day);
+    }
+  });
+
+  result.sort((a, b) => a.sortValue - b.sortValue);
+  return result;
 }
 function parseSearch(u){
   try {
@@ -497,15 +560,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg?.type === 'GET_HISTORY_BY_DAY') {
       const history = await collectRecentHistory(settings);
-      const respPayload = { ok: true, days: history.days };
+      let days = history.days;
+      const respPayload = { ok: true, days };
       if (settings.developerDebugMode){
         const events = await getEvents();
         events.sort((a,b)=>a.ts-b.ts);
-        const timelineLines = buildInteractionTimeline(events, settings);
+        const timelineDays = buildInteractionTimelineDays(events, settings);
+        days = mergeHistoryAndTimelineDays(history.days, timelineDays, settings);
+        respPayload.days = days;
         const eventStreamJson = buildEventStreamJson(events);
-        if (timelineLines.length || eventStreamJson){
+        if (eventStreamJson){
           respPayload.debug = {
-            timelineLines,
             eventStreamJson,
           };
         }
