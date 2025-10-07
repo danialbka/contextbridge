@@ -12,6 +12,7 @@ const DEFAULTS = {
   blockList: ["accounts.google.com","paypal.com","bank","chat.openai.com/auth"],
   includeHistoryWindowMinutes: 45,
   timeFormat: 'local',
+  developerDebugMode: false,
 };
 
 function toList(text){ return text.split(/\n+/).map(s=>s.trim()).filter(Boolean); }
@@ -29,6 +30,7 @@ function load(){
     el('timeFormat').value = s.timeFormat || 'local';
     el('allowList').value = fromList(s.allowList);
     el('blockList').value = fromList(s.blockList);
+    el('developerDebugMode').checked = !!s.developerDebugMode;
   });
 }
 
@@ -43,6 +45,7 @@ function save(){
     timeFormat: el('timeFormat').value,
     allowList: toList(el('allowList').value),
     blockList: toList(el('blockList').value),
+    developerDebugMode: el('developerDebugMode').checked,
   };
   chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', settings }, (r)=>{
     const msg = document.getElementById('msg');

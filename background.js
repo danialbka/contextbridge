@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS = {
   blockList: ["accounts.google.com","paypal.com","bank","chat.openai.com/auth"],
   includeHistoryWindowMinutes: 45,
   timeFormat: 'local',
+  developerDebugMode: false,
 };
 
 function getHistoryDb(){
@@ -271,7 +272,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg?.type === 'EVENT') {
       const ev = msg.payload;
       if (!domainAllowed(ev.url || '', settings)) return sendResponse({ ok: true });
-      await pushEvent({ ...ev, ts: nowTs(), tabId: sender.tab?.id ?? -1 });
+      const ts = Number.isFinite(ev?.ts) ? ev.ts : nowTs();
+      await pushEvent({ ...ev, ts, tabId: sender.tab?.id ?? -1 });
       return sendResponse({ ok: true });
     }
 
@@ -325,6 +327,201 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
+function isDeveloperEvent(ev){
+  return !!ev && typeof ev.type === 'string';
+}
+
+function getDeveloperEvents(events){
+  return events.filter(isDeveloperEvent);
+}
+
+function coerceTs(value){
+  const num = Number(value);
+  return Number.isFinite(num) ? num : NaN;
+}
+
+function fmtDebugTime(ts, settings){
+  const num = coerceTs(ts);
+  if (!Number.isFinite(num)) return fmtTime(Date.now(), settings.timeFormat);
+  return fmtTime(num, settings.timeFormat);
+}
+
+function truncate(str = '', max = 80){
+  if (str.length <= max) return str;
+  return `${str.slice(0, max - 1)}…`;
+}
+
+function formatBytes(bytes){
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatNetworkEvent(ev){
+  const kind = (ev.kind || '').toUpperCase();
+  const label = kind === 'FETCH' ? 'fetch' : kind === 'XHR' ? 'XHR' : kind || 'NET';
+  const method = (ev.method || '').toUpperCase();
+  const url = ev.url || '';
+  const status = typeof ev.status === 'number' || typeof ev.status === 'string'
+    ? ` **${ev.status}**`
+    : '';
+  const dur = Number.isFinite(ev.dur_ms) ? ` in **${Math.round(ev.dur_ms)} ms**` : '';
+  const size = formatBytes(ev.resp_bytes);
+  const sizePart = size ? `, ${size}` : '';
+  const redacted = ev.redacted ? ' (redacted)' : '';
+  const methodPart = method ? `${method} ` : '';
+  const urlDisplay = url ? truncate(url, 120) : '';
+  return `↳ ${label} \`${methodPart}${urlDisplay}\`${status}${dur}${sizePart}${redacted}`;
+}
+
+function formatConsoleEvent(ev){
+  const level = (ev.level || '').toLowerCase();
+  const msg = ev.msg || ev.message || '';
+  const stack = ev.stack ? ` (${truncate(ev.stack, 80)})` : '';
+  const base = level ? `Console.${level}` : 'Console';
+  return `↳ ${base}: “${truncate(msg, 160)}”${stack}`;
+}
+
+function formatErrorEvent(ev){
+  const msg = ev.msg || ev.message || '';
+  const src = ev.src ? ` at ${ev.src}${Number.isFinite(ev.line) ? `:${ev.line}` : ''}` : '';
+  return `↳ **ERROR** ${truncate(msg, 160)}${src}`;
+}
+
+function formatRouteEvent(ev){
+  const from = ev.from ? truncate(ev.from, 120) : '';
+  const to = ev.to ? truncate(ev.to, 120) : '';
+  const arrow = from && to ? `${from} ➜ ${to}` : to ? `➜ ${to}` : from ? `from ${from}` : 'route change';
+  const mode = ev.mode ? ` • ${ev.mode}` : '';
+  return `↳ Route ${arrow}${mode}`;
+}
+
+function formatDomEvent(ev){
+  const adds = Number.isFinite(ev.adds) ? `+${ev.adds}` : null;
+  const removes = Number.isFinite(ev.removes) ? `-${ev.removes}` : null;
+  const parts = [adds, removes].filter(Boolean).join(' / ');
+  return `↳ DOM: ${parts || 'mutation'}`;
+}
+
+function formatPerfEvent(ev){
+  const metric = ev.metric || 'perf';
+  const value = Number.isFinite(ev.value_ms) ? `${ev.value_ms} ms` : (Number.isFinite(ev.value) ? `${ev.value}` : '');
+  return `↳ Perf ${metric}: ${value}`;
+}
+
+function formatMiscEvent(ev){
+  const payload = { ...ev };
+  delete payload.type;
+  delete payload.ts;
+  const data = Object.keys(payload).length ? ` ${truncate(JSON.stringify(payload), 160)}` : '';
+  return `↳ ${ev.type}${data}`;
+}
+
+function describeEvent(ev){
+  if (!ev || ev.type === 'click') return null;
+  switch (ev.type){
+    case 'net': return formatNetworkEvent(ev);
+    case 'console': return formatConsoleEvent(ev);
+    case 'error': return formatErrorEvent(ev);
+    case 'route': return formatRouteEvent(ev);
+    case 'dom': return formatDomEvent(ev);
+    case 'perf': return formatPerfEvent(ev);
+    default: return formatMiscEvent(ev);
+  }
+}
+
+function formatClickHeader(click, fallbackTs, settings){
+  const ts = fmtDebugTime(click?.ts ?? fallbackTs, settings);
+  if (!click){
+    return `* [${ts}] **EVENT** (no click context)`;
+  }
+  const selector = click.selector ? ` \`${truncate(click.selector, 80)}\`` : '';
+  const text = click.text ? ` “${truncate(click.text, 80)}”` : '';
+  const url = click.url ? ` @ ${truncate(click.url, 140)}` : '';
+  return `* [${ts}] **CLICK**${selector}${text}${url}`;
+}
+
+function getEventTimestamp(ev){
+  return coerceTs(ev?.ts);
+}
+
+function buildInteractionTimeline(events, settings){
+  const debugEvents = getDeveloperEvents(events);
+  if (!debugEvents.length) return ['*(No developer debug events captured)*'];
+
+  const groups = new Map();
+  let orphanCounter = 0;
+  debugEvents.forEach((ev) => {
+    const ts = getEventTimestamp(ev);
+    const key = ev.type === 'click' && ev.id
+      ? `click:${ev.id}`
+      : ev.click_id
+        ? `click:${ev.click_id}`
+        : `orphan:${ev.type}:${Number.isFinite(ts) ? ts : ++orphanCounter}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(ev);
+  });
+
+  const sortedGroups = Array.from(groups.values()).sort((a, b) => {
+    const ta = a.reduce((min, ev) => {
+      const ts = getEventTimestamp(ev);
+      return Math.min(min, Number.isFinite(ts) ? ts : Infinity);
+    }, Infinity);
+    const tb = b.reduce((min, ev) => {
+      const ts = getEventTimestamp(ev);
+      return Math.min(min, Number.isFinite(ts) ? ts : Infinity);
+    }, Infinity);
+    return ta - tb;
+  });
+
+  const lines = [];
+  sortedGroups.forEach((group) => {
+    group.sort((a, b) => {
+      const ta = getEventTimestamp(a);
+      const tb = getEventTimestamp(b);
+      return (Number.isFinite(ta) ? ta : 0) - (Number.isFinite(tb) ? tb : 0);
+    });
+    const click = group.find((ev) => ev.type === 'click');
+    const header = formatClickHeader(click, group[0]?.ts, settings);
+    lines.push(header);
+    group.forEach((ev) => {
+      if (ev === click) return;
+      const desc = describeEvent(ev);
+      if (desc) lines.push(`  ${desc}`);
+    });
+  });
+  return lines;
+}
+
+function sanitizeForJson(value){
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((v) => sanitizeForJson(v));
+  const out = {};
+  Object.entries(value).forEach(([key, val]) => {
+    if (typeof val === 'undefined') return;
+    if (typeof val === 'number' && !Number.isFinite(val)) return;
+    out[key] = sanitizeForJson(val);
+  });
+  return out;
+}
+
+function buildEventStream(events){
+  const debugEvents = getDeveloperEvents(events);
+  const tz = (() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+      return 'UTC';
+    }
+  })();
+  return {
+    event_version: '1.0',
+    locale_tz: tz,
+    events: debugEvents.map((ev) => sanitizeForJson(ev)),
+  };
+}
+
 async function composeReport(){
   const [settings, events, sess] = await Promise.all([getSettings(), getEvents(), getSession()]);
   const history = await collectRecentHistory(settings);
@@ -377,6 +574,19 @@ async function composeReport(){
       const v = (ev.value||'').slice(0, 400).replaceAll('\n',' ');
       lines.push(`- [${t}] INPUT${label}:${base}\n    -> ${v}`);
     }
+  }
+  if (settings.developerDebugMode){
+    lines.push('');
+    lines.push('## Interaction Timeline (Clicks • Network • Console • Route)');
+    const timelineLines = buildInteractionTimeline(events, settings);
+    timelineLines.forEach((line) => lines.push(line));
+    lines.push('');
+    lines.push('## Event Stream (JSON)');
+    const stream = buildEventStream(events);
+    const streamJson = JSON.stringify(stream, null, 2).split('\n');
+    lines.push('```json');
+    streamJson.forEach((line) => lines.push(line));
+    lines.push('```');
   }
   lines.push('\n---\n');
   lines.push('*(Generated by Context Copy Agent — local only, no uploads)*');
