@@ -74,17 +74,30 @@ export async function upsertRecallEntry({
   const existingIdx = typeof id === 'string'
     ? all.findIndex((entry) => entry.id === id)
     : all.findIndex((entry) => entry.layer === layer && entry.itemId === itemId);
+  const existingEntry = existingIdx === -1 ? null : all[existingIdx];
+  let nextEmbedding;
+  if (Array.isArray(embedding)){
+    nextEmbedding = embedding.slice();
+  } else if (embedding === null){
+    nextEmbedding = null;
+  } else if (existingEntry){
+    nextEmbedding = Array.isArray(existingEntry.embedding)
+      ? existingEntry.embedding.slice()
+      : existingEntry.embedding ?? null;
+  } else {
+    nextEmbedding = null;
+  }
   const entryId = id || uniqueId('recall');
   const entry = {
     id: entryId,
     layer,
     itemId,
     summary,
-    embedding: Array.isArray(embedding) ? embedding.slice() : null,
+    embedding: nextEmbedding,
     keywords: deriveKeywords(summary, keywords),
     salience,
-    createdAt: existingIdx === -1 ? now : all[existingIdx].createdAt,
-    lastUsedAt: existingIdx === -1 ? 0 : all[existingIdx].lastUsedAt,
+    createdAt: existingIdx === -1 ? now : existingEntry.createdAt,
+    lastUsedAt: existingIdx === -1 ? 0 : existingEntry.lastUsedAt,
     pinned,
   };
   if (existingIdx === -1){
