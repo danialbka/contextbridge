@@ -3,12 +3,15 @@
 const EVENTS_KEY = 'cca_events_v1';
 const SETTINGS_KEY = 'cca_settings_v1';
 const SESSION_KEY = 'cca_session_v1';
+const SCREENSHOT_DB_NAME = 'cca_screenshots_v1';
+const SCREENSHOT_STORE = 'shots';
 
 const HISTORY_DB_NAME = 'cca_history_days_v1';
 const HISTORY_DB_VERSION = 1;
 const HISTORY_STORE = 'days';
 
 let historyDbPromise;
+let screenshotDbPromise;
 
 const DEFAULT_SETTINGS = {
   captureInputs: true,
@@ -38,6 +41,24 @@ function getHistoryDb(){
     });
   }
   return historyDbPromise;
+}
+
+function getScreenshotDb(){
+  if (!screenshotDbPromise){
+    screenshotDbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(SCREENSHOT_DB_NAME, 1);
+      req.onerror = () => reject(req.error);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(SCREENSHOT_STORE)){
+          const store = db.createObjectStore(SCREENSHOT_STORE, { keyPath: 'id' });
+          store.createIndex('ts', 'ts');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+    });
+  }
+  return screenshotDbPromise;
 }
 
 function idbRequest(req){
@@ -181,6 +202,95 @@ async function pushEvent(ev){
   if (overshoot > 0) events.splice(0, overshoot);
   await chrome.storage.local.set({ [EVENTS_KEY]: events });
 }
+async function storeScreenshot({ ts, url, title, dataUrl }){
+  try {
+    const db = await getScreenshotDb();
+    const tx = db.transaction(SCREENSHOT_STORE, 'readwrite');
+    const store = tx.objectStore(SCREENSHOT_STORE);
+    const id = `${ts}-${Math.random().toString(16).slice(2)}`;
+    await idbRequest(store.put({ id, ts, url, title, dataUrl }));
+    await idbTxDone(tx);
+    return id;
+  } catch (e){
+    console.error('Store screenshot failed', e);
+    throw e;
+  }
+}
+
+async function loadRecentScreenshots({ sinceTs, limit = 20 }){
+  try {
+    const db = await getScreenshotDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(SCREENSHOT_STORE, 'readonly');
+      const store = tx.objectStore(SCREENSHOT_STORE);
+      const idx = store.index('ts');
+      const range = sinceTs ? IDBKeyRange.lowerBound(sinceTs) : null;
+      const results = [];
+      const req = idx.openCursor(range, 'prev');
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return resolve(results);
+        results.push(cursor.value);
+        if (results.length >= limit) return resolve(results);
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e){
+    console.error('Load screenshots failed', e);
+    return [];
+  }
+}
+
+async function trimScreenshots(maxEvents){
+  try {
+    if (!Number.isFinite(maxEvents) || maxEvents <= 0) return;
+    const db = await getScreenshotDb();
+    const tx = db.transaction(SCREENSHOT_STORE, 'readwrite');
+    const store = tx.objectStore(SCREENSHOT_STORE);
+    const idx = store.index('ts');
+    const req = idx.openCursor(null, 'next');
+    let total = 0;
+    const keys = [];
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) {
+        while (total > maxEvents && keys.length){
+          const key = keys.shift();
+          store.delete(key);
+          total--;
+        }
+        return;
+      }
+      total++;
+      keys.push(cursor.primaryKey);
+      cursor.continue();
+    };
+    await idbTxDone(tx);
+  } catch (e){
+    console.error('Trim screenshots failed', e);
+  }
+}
+
+async function clearRecentScreenshots(startTs, endTs){
+  try {
+    const db = await getScreenshotDb();
+    const tx = db.transaction(SCREENSHOT_STORE, 'readwrite');
+    const store = tx.objectStore(SCREENSHOT_STORE);
+    const idx = store.index('ts');
+    const range = IDBKeyRange.bound(startTs, endTs);
+    const req = idx.openCursor(range, 'next');
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) return;
+      store.delete(cursor.primaryKey);
+      cursor.continue();
+    };
+    await idbTxDone(tx);
+  } catch (e){
+    console.error('Clear screenshots failed', e);
+  }
+}
 async function clearEvents(){ await chrome.storage.local.set({ [EVENTS_KEY]: [] }); }
 async function initSession(){
   const sess = { startedAt: nowTs(), id: crypto.randomUUID() };
@@ -305,6 +415,7 @@ async function clearRecentHistory(settings){
   const endTime = Date.now();
   const startTime = endTime - settings.includeHistoryWindowMinutes*60*1000;
   await chrome.history.deleteRange({ startTime, endTime });
+  await clearRecentScreenshots(startTime, endTime);
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -345,7 +456,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg?.type === 'GET_HISTORY_BY_DAY') {
       const history = await collectRecentHistory(settings);
-      return sendResponse({ ok: true, days: history.days });
+      const windowMs = settings.includeHistoryWindowMinutes*60*1000;
+      const sinceTs = Date.now() - windowMs;
+      const screenshots = await loadRecentScreenshots({ sinceTs });
+      return sendResponse({ ok: true, days: history.days, screenshots });
     }
 
     if (msg?.type === 'CLEAR_HISTORY_WINDOW') {
@@ -361,6 +475,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) {
         console.error('OPEN_AND_SEND error', e);
         return sendResponse({ ok: false, error: String(e) });
+      }
+    }
+
+    if (msg?.type === 'CAPTURE_SCREENSHOT') {
+      try {
+        const result = await captureActiveScreenshot(settings);
+        return sendResponse({ ok: true, screenshot: result });
+      } catch (e) {
+        console.error('CAPTURE_SCREENSHOT error', e);
+        return sendResponse({ ok: false, error: e?.message || String(e) });
       }
     }
   })();
@@ -423,6 +547,32 @@ async function composeReport(){
   lines.push('\n---\n');
   lines.push('*(Generated by Context Copy Agent — local only, no uploads)*');
   return lines.join('\n');
+}
+
+async function captureActiveScreenshot(settings){
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !tab.url){
+    throw new Error('No active tab');
+  }
+  if (!domainAllowed(tab.url, settings)){
+    throw new Error('Domain blocked by settings');
+  }
+  if (!chrome.tabs.captureVisibleTab){
+    throw new Error('captureVisibleTab unavailable');
+  }
+  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+  const ts = nowTs();
+  const event = {
+    kind: 'screenshot',
+    ts,
+    tabId: tab.id,
+    title: tab.title || '',
+    url: tab.url,
+  };
+  await pushEvent(event);
+  const screenshotId = await storeScreenshot({ ts, url: tab.url, title: tab.title || '', dataUrl });
+  await trimScreenshots(settings.maxEvents || DEFAULT_SETTINGS.maxEvents);
+  return { id: screenshotId, ts, url: tab.url, title: tab.title || '', dataUrl };
 }
 
 // Open ChatGPT and inject text into composer

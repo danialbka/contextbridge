@@ -10,8 +10,10 @@ const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 const confirmOverlay = document.getElementById('confirmOverlay');
 const confirmClear = document.getElementById('confirmClear');
 const cancelClear = document.getElementById('cancelClear');
+const timelineEl = document.getElementById('timeline');
 let confirmOpen = false;
 let currentDays = [];
+let currentTimeline = [];
 
 const ROLE_OPTIONS = [
   'Therapist',
@@ -123,6 +125,55 @@ function renderDays(days){
   sorted.forEach((day) => {
     sectionsEl.appendChild(buildDaySection(day));
   });
+}
+
+function renderTimeline(items){
+  if (!timelineEl) return;
+  timelineEl.innerHTML = '';
+  currentTimeline = [];
+  if (!items.length){
+    const empty = document.createElement('p');
+    empty.className = 'timeline-empty';
+    empty.textContent = 'No timeline events captured yet.';
+    timelineEl.appendChild(empty);
+    return;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'timeline-list';
+  items.forEach((item) => {
+    const entry = document.createElement('article');
+    entry.className = 'timeline-item';
+
+    const header = document.createElement('header');
+    header.className = 'timeline-header';
+
+    const title = document.createElement('h3');
+    title.textContent = item.title || 'Untitled';
+    header.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'timeline-meta';
+    const metaParts = [item.label];
+    if (item.url) metaParts.push(item.url);
+    meta.textContent = metaParts.join(' — ');
+    header.appendChild(meta);
+
+    entry.appendChild(header);
+
+    if (item.kind === 'screenshot' && item.dataUrl){
+      const img = document.createElement('img');
+      img.src = item.dataUrl;
+      img.alt = `Screenshot taken ${item.label}`;
+      img.loading = 'lazy';
+      entry.appendChild(img);
+    }
+
+    list.appendChild(entry);
+    currentTimeline.push(item);
+  });
+
+  timelineEl.appendChild(list);
 }
 
 function buildDaySection(day){
@@ -417,6 +468,18 @@ function exportHistoryCsv(){
   URL.revokeObjectURL(url);
 }
 
+function decorateTimeline(rawScreenshots){
+  if (!Array.isArray(rawScreenshots)) return [];
+  return rawScreenshots
+    .slice()
+    .sort((a,b)=>b.ts - a.ts)
+    .map((item) => ({
+      ...item,
+      kind: 'screenshot',
+      label: new Date(item.ts).toLocaleString()
+    }));
+}
+
 function loadDays(){
   setLoading(true);
   chrome.runtime.sendMessage({ type: 'GET_HISTORY_BY_DAY' }, (resp) => {
@@ -433,6 +496,7 @@ function loadDays(){
       return;
     }
     renderDays(resp.days || []);
+    renderTimeline(decorateTimeline(resp.screenshots));
   });
 }
 

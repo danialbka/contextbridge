@@ -8,6 +8,7 @@ const sendBtn = document.getElementById('sendBtn');
 const sendDropdownToggle = document.getElementById('sendDropdownToggle');
 const sendRoleMenu = document.getElementById('sendRoleMenu');
 const clearBtn = document.getElementById('clearBtn');
+const screenshotBtn = document.getElementById('screenshotBtn');
 const opts = document.getElementById('opts');
 const toast = document.getElementById('toast');
 const historyBtn = document.getElementById('historyBtn');
@@ -45,6 +46,14 @@ async function compose(){
 function withRolePrefix(text, role){
   const prefix = role ? `[Role: ${role}]\n\n` : '';
   return `${prefix}${text}`;
+}
+
+function ensureChromeApi(){
+  if (!chromeApi?.runtime){
+    showToast('Only available in extension');
+    return false;
+  }
+  return true;
 }
 
 function createMenuContext(menuEl, toggleEl){
@@ -140,6 +149,20 @@ async function sendContextWithRole(role){
   });
 }
 
+function requestScreenshot(){
+  if (!ensureChromeApi()) return;
+  screenshotBtn?.setAttribute('disabled', 'true');
+  chromeApi.runtime.sendMessage({ type: 'CAPTURE_SCREENSHOT' }, (resp) => {
+    screenshotBtn?.removeAttribute('disabled');
+    if (!resp?.ok){
+      const msg = resp?.error ? `Screenshot failed: ${resp.error}` : 'Screenshot failed';
+      showToast(msg);
+      return;
+    }
+    showToast('Screenshot captured');
+  });
+}
+
 const copyMenuContext = createMenuContext(copyRoleMenu, copyDropdownToggle);
 const sendMenuContext = createMenuContext(sendRoleMenu, sendDropdownToggle);
 
@@ -179,6 +202,10 @@ sendRoleMenu?.addEventListener('click', async (event) => {
   const role = event.target.dataset.role;
   sendMenuContext.close();
   await sendContextWithRole(role);
+});
+
+screenshotBtn?.addEventListener('click', () => {
+  requestScreenshot();
 });
 
 function showConfirm(){
