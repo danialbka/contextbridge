@@ -1,0 +1,58 @@
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Context Copy Options</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h1>Context Copy — Options</h1>
+
+    <section>
+      <h2>What to Capture</h2>
+      <label><input type="checkbox" id="captureSelections"> Capture selected text</label><br>
+      <label><input type="checkbox" id="captureInputs"> Capture form inputs (excludes passwords)</label>
+      <p class="hint">Form input capture is sensitive. Keep it off unless you need it. Password and hidden fields are always ignored.</p>
+    </section>
+
+    <section>
+      <h2>Limits</h2>
+      <label>Max events <input type="number" id="maxEvents" min="100" max="10000" step="100"></label>
+      <label>Recent browser history window (minutes) <input type="number" id="historyWindow" min="0" max="240"></label>
+      <label>Selection length: min <input type="number" id="minSel" min="0" max="2000" style="width:80px"> chars, max <input type="number" id="maxSel" min="50" max="4000" style="width:80px"> chars</label>
+      <label>Time format
+        <select id="timeFormat">
+          <option value="local">Local time</option>
+          <option value="iso">ISO 8601</option>
+        </select>
+      </label>
+    </section>
+
+    <section>
+      <h2>Domain Filters</h2>
+      <div class="grid">
+        <div>
+          <h3>Allow List</h3>
+          <textarea id="allowList" placeholder="one.domain.com&#10;example.org"></textarea>
+        </div>
+        <div>
+          <h3>Block List</h3>
+          <textarea id="blockList" placeholder="paypal.com&#10;bank&#10;accounts.google.com"></textarea>
+        </div>
+      </div>
+      <p class="hint">If Allow List is empty, all domains are allowed except those in Block List.</p>
+    </section>
+
+    <div class="actions">
+      <button id="saveBtn">Save</button>
+      <button id="resetBtn" class="ghost">Reset to defaults</button>
+    </div>
+
+    <div id="msg" class="msg" hidden>Saved</div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
