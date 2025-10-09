@@ -3,6 +3,15 @@
 import { buildGraph, summarizeGraph } from './debug/reconstructor.js';
 import { makePatchFromTimeline } from './debug/orchestrator.js';
 import { LAYOUT_PROBE_SNIPPET } from './debug/layoutProbe.js';
+import {
+  retrieveMemoryContext,
+  appendFoundationItem,
+  listFoundationItems,
+  appendTimelineEvent as appendMemoryTimelineEvent,
+  setFoundationPin,
+  setTimelinePin,
+  exportAuditTrail,
+} from './memory/index.js';
 const EVENTS_KEY = 'cca_events_v1';
 const SETTINGS_KEY = 'cca_settings_v1';
 const SESSION_KEY = 'cca_session_v1';
@@ -188,6 +197,27 @@ async function pushEvent(ev){
   const overshoot = events.length - settings.maxEvents;
   if (overshoot > 0) events.splice(0, overshoot);
   await chrome.storage.local.set({ [EVENTS_KEY]: events });
+  try {
+    const summary = formatInteractionDetail(ev) || ev.title || ev.text || '';
+    if (summary){
+      await appendMemoryTimelineEvent({
+        ts: ev.ts || nowTs(),
+        actor: ev.actor || 'user',
+        channel: ev.channel || ev.type || 'event',
+        text: summary,
+        meta: {
+          url: ev.url || ev.pageUrl || ev.origin || null,
+          tabId: ev.tabId,
+          type: ev.type,
+        },
+        salience: ev.pinned ? 0.8 : 0.2,
+      });
+    }
+  } catch (error){
+    if (settings.developerDebugMode){
+      console.warn('appendMemoryTimelineEvent failed', error);
+    }
+  }
 }
 async function clearEvents(){ await chrome.storage.local.set({ [EVENTS_KEY]: [] }); }
 async function initSession(){
@@ -633,6 +663,76 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) {
         console.error('OPEN_AND_SEND error', e);
         return sendResponse({ ok: false, error: String(e) });
+      }
+    }
+
+    if (msg?.type === 'MEMORY_RETRIEVE') {
+      try {
+        const prompt = msg.prompt || '';
+        const uiCtx = msg.uiCtx || {};
+        const options = msg.options || {};
+        const result = await retrieveMemoryContext(prompt, uiCtx, options);
+        return sendResponse({ ok: true, ...result });
+      } catch (error) {
+        console.error('MEMORY_RETRIEVE failed', error);
+        return sendResponse({ ok: false, error: String(error) });
+      }
+    }
+
+    if (msg?.type === 'MEMORY_WRITE_FOUNDATION') {
+      try {
+        const result = await appendFoundationItem(msg.item || {}, { confirmed: !!msg.confirmed });
+        return sendResponse({ ok: !!result.ok, result });
+      } catch (error) {
+        console.error('MEMORY_WRITE_FOUNDATION failed', error);
+        return sendResponse({ ok: false, error: String(error) });
+      }
+    }
+
+    if (msg?.type === 'MEMORY_LIST_FOUNDATION') {
+      try {
+        const items = await listFoundationItems();
+        return sendResponse({ ok: true, items });
+      } catch (error) {
+        console.error('MEMORY_LIST_FOUNDATION failed', error);
+        return sendResponse({ ok: false, error: String(error) });
+      }
+    }
+
+    if (msg?.type === 'MEMORY_APPEND_TIMELINE') {
+      try {
+        const event = await appendMemoryTimelineEvent(msg.event || {});
+        return sendResponse({ ok: true, event });
+      } catch (error) {
+        console.error('MEMORY_APPEND_TIMELINE failed', error);
+        return sendResponse({ ok: false, error: String(error) });
+      }
+    }
+
+    if (msg?.type === 'MEMORY_SET_PIN') {
+      try {
+        if (msg.layer === 'foundation'){
+          const result = await setFoundationPin(msg.id, !!msg.pinned);
+          return sendResponse({ ok: !!result.ok, result });
+        }
+        if (msg.layer === 'timeline'){
+          const result = await setTimelinePin(msg.id, !!msg.pinned);
+          return sendResponse({ ok: !!result.ok, result });
+        }
+        return sendResponse({ ok: false, error: 'unknown_layer' });
+      } catch (error) {
+        console.error('MEMORY_SET_PIN failed', error);
+        return sendResponse({ ok: false, error: String(error) });
+      }
+    }
+
+    if (msg?.type === 'MEMORY_EXPORT_AUDIT') {
+      try {
+        const entries = await exportAuditTrail();
+        return sendResponse({ ok: true, entries });
+      } catch (error) {
+        console.error('MEMORY_EXPORT_AUDIT failed', error);
+        return sendResponse({ ok: false, error: String(error) });
       }
     }
   })();
