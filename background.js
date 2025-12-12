@@ -22,6 +22,29 @@ const DEFAULT_SETTINGS = {
   timeFormat: 'local',
 };
 
+function clampInt(value, { min = 0, max = Number.MAX_SAFE_INTEGER, fallback } = {}){
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const intVal = Math.trunc(num);
+  return Math.min(max, Math.max(min, intVal));
+}
+
+function normalizeSettings(raw){
+  const merged = { ...DEFAULT_SETTINGS, ...(raw || {}) };
+  return {
+    ...merged,
+    captureInputs: !!merged.captureInputs,
+    captureSelections: !!merged.captureSelections,
+    maxEvents: clampInt(merged.maxEvents, { min: 1, max: 50000, fallback: DEFAULT_SETTINGS.maxEvents }),
+    maxSnippetLen: clampInt(merged.maxSnippetLen, { min: 1, max: 4000, fallback: DEFAULT_SETTINGS.maxSnippetLen }),
+    minSnippetLen: clampInt(merged.minSnippetLen, { min: 0, max: 2000, fallback: DEFAULT_SETTINGS.minSnippetLen }),
+    allowList: Array.isArray(merged.allowList) ? merged.allowList : [],
+    blockList: Array.isArray(merged.blockList) ? merged.blockList : DEFAULT_SETTINGS.blockList,
+    includeHistoryWindowMinutes: clampInt(merged.includeHistoryWindowMinutes, { min: 0, max: 7 * 24 * 60, fallback: DEFAULT_SETTINGS.includeHistoryWindowMinutes }),
+    timeFormat: merged.timeFormat === 'iso' ? 'iso' : 'local',
+  };
+}
+
 function getHistoryDb(){
   if (!historyDbPromise){
     historyDbPromise = new Promise((resolve, reject) => {
@@ -138,15 +161,19 @@ async function loadStoredHistoryDays(settings){
       req.onerror = () => reject(req.error);
     });
     return days
-      .filter((d) => Array.isArray(d.lines) && d.lines.length)
-      .sort((a,b)=>a.sortValue - b.sortValue)
-      .map((day) => ({
-        id: `day-${day.sortValue}`,
-        label: fmtDay(day.sortValue, settings.timeFormat),
-        sortValue: day.sortValue,
-        lines: day.lines.slice(),
-        text: day.lines.join('\n'),
-      }));
+      .map((day) => {
+        const sortValue = Number(day?.sortValue);
+        if (!Array.isArray(day?.lines) || day.lines.length === 0) return null;
+        if (!Number.isFinite(sortValue)) return null;
+        return {
+          id: `day-${sortValue}`,
+          label: fmtDay(sortValue, settings.timeFormat),
+          sortValue,
+          lines: day.lines,
+        };
+      })
+      .filter(Boolean)
+      .sort((a,b)=>a.sortValue - b.sortValue);
   } catch (e){
     console.error('Load stored history days failed', e);
     return [];
@@ -166,7 +193,7 @@ function fmtDay(ts, mode='local'){
 
 async function getSettings(){
   const { [SETTINGS_KEY]: s } = await chrome.storage.sync.get(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...(s||{}) };
+  return normalizeSettings(s);
 }
 async function setSettings(newS){ await chrome.storage.sync.set({ [SETTINGS_KEY]: newS }); }
 async function getEvents(){
@@ -232,7 +259,8 @@ async function collectRecentHistory(settings){
     getEvents()
   ]);
 
-  hist.sort((a,b)=>a.lastVisitTime-b.lastVisitTime);
+  const histItems = hist.filter((h) => Number.isFinite(h.lastVisitTime));
+  histItems.sort((a,b)=>a.lastVisitTime-b.lastVisitTime);
 
   const entryList = [];
   const buckets = new Map();
@@ -251,7 +279,7 @@ async function collectRecentHistory(settings){
     ensureBucket(ts).entries.push({ ts, line });
   }
 
-  hist.forEach((h) => {
+  histItems.forEach((h) => {
     if (!domainAllowed(h.url||'', settings)) return;
     const t = fmtTime(h.lastVisitTime, settings.timeFormat);
     const srch = parseSearch(h.url||'');

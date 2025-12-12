@@ -253,7 +253,8 @@ function buildDaySection(day){
 
   function buildDayText(role){
     const prefix = role ? `[Role: ${role}]\n\n` : '';
-    return `${prefix}${day.text}`;
+    const body = typeof day.text === 'string' ? day.text : day.lines.join('\n');
+    return `${prefix}${body}`;
   }
 
   async function copyDay(role){
