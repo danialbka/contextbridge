@@ -2,7 +2,7 @@
 
 ChatGPT Context Bridge is a Chrome extension that helps you turn your recent browsing activity into a prompt you can copy or send to ChatGPT.
 
-It captures local session context such as visited pages, selected text, and optional form input snippets, then formats that context into a single report for review and export.
+It captures local session context such as visited pages, selected text, search queries, and optional form input snippets, then formats that context into a single report for review and export.
 
 ## Install
 
@@ -19,19 +19,24 @@ For local development, load this repository as an unpacked extension:
 
 - Copy the current session context to the clipboard
 - Send the composed context directly to ChatGPT
+- Use role-based copy/send presets such as `Therapist`, `Data Analyst`, `Recommendation Coach`, `Shopping Analyst`, and `What Did I Miss Analyser`
 - Capture selected text snippets from visited pages
 - Optionally capture non-password form input text
+- Detect common searches from Google, Bing, DuckDuckGo, and YouTube URLs
 - Group recent browsing history by day
 - Export history as CSV
-- Apply role-prefixed prompts such as `Data Analyst` or `Recommendation Coach`
+- Filter capture with allow lists and block lists
+- Configure event limits and time format from the options page
+- Clear the current captured session with `Panic Erase`
+- Clear recent browser history from the history page
 
 ## Usage
 
 1. Browse normally
 2. Open the extension popup
-3. Choose `Copy Context` or `Send to ChatGPT`
-4. Use `Options` to adjust capture settings and domain filters
-5. Use `History` to review, export, or clear recent captured history
+3. Choose `Copy Context` or `Send to ChatGPT`, or use the dropdown buttons to apply a role preset
+4. Use `Options` to control selection capture, form input capture, max events, time format, and domain filters
+5. Use `History` to review grouped history, export CSV, or clear recent browser history
 
 ## Development
 
