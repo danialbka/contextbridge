@@ -5,12 +5,12 @@ const el = (id) => document.getElementById(id);
 const DEFAULTS = {
   captureInputs: true,
   captureSelections: true,
-  maxEvents: 1000,
-  maxSnippetLen: 500,
-  minSnippetLen: 15,
+  maxEvents: 50000,
+  maxSnippetLen: 0,
+  minSnippetLen: 0,
   allowList: [],
   blockList: ["accounts.google.com","paypal.com","bank","chat.openai.com/auth"],
-  includeHistoryWindowMinutes: 45,
+  includeHistoryWindowMinutes: 0,
   timeFormat: 'local',
 };
 
@@ -23,9 +23,6 @@ function load(){
     el('captureInputs').checked = !!s.captureInputs;
     el('captureSelections').checked = !!s.captureSelections;
     el('maxEvents').value = s.maxEvents;
-    el('historyWindow').value = s.includeHistoryWindowMinutes;
-    el('minSel').value = s.minSnippetLen;
-    el('maxSel').value = s.maxSnippetLen;
     el('timeFormat').value = s.timeFormat || 'local';
     el('allowList').value = fromList(s.allowList);
     el('blockList').value = fromList(s.blockList);
@@ -36,10 +33,7 @@ function save(){
   const settings = {
     captureInputs: el('captureInputs').checked,
     captureSelections: el('captureSelections').checked,
-    maxEvents: Number(el('maxEvents').value) || 1000,
-    includeHistoryWindowMinutes: Number(el('historyWindow').value) || 45,
-    minSnippetLen: Number(el('minSel').value) || 15,
-    maxSnippetLen: Number(el('maxSel').value) || 500,
+    maxEvents: Number(el('maxEvents').value) || 50000,
     timeFormat: el('timeFormat').value,
     allowList: toList(el('allowList').value),
     blockList: toList(el('blockList').value),

@@ -22,7 +22,8 @@
       clearTimeout(selTimeout);
       selTimeout = setTimeout(() => {
         const t = window.getSelection()?.toString() || '';
-        if (t && t.length >= settings.minSnippetLen && t.length <= settings.maxSnippetLen){
+        const maxLen = Number(settings.maxSnippetLen) || 0;
+        if (t && t.length >= (settings.minSnippetLen || 0) && (maxLen <= 0 || t.length <= maxLen)){
           send({ kind: 'selection', title: document.title, url: location.href, text: t });
         }
       }, 120);

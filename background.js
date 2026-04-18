@@ -13,12 +13,12 @@ let historyDbPromise;
 const DEFAULT_SETTINGS = {
   captureInputs: true,
   captureSelections: true,
-  maxEvents: 1000,
-  maxSnippetLen: 500,
-  minSnippetLen: 15,
+  maxEvents: 50000,
+  maxSnippetLen: 0,
+  minSnippetLen: 0,
   allowList: [],
   blockList: ["accounts.google.com","paypal.com","bank","chat.openai.com/auth"],
-  includeHistoryWindowMinutes: 45,
+  includeHistoryWindowMinutes: 0,
   timeFormat: 'local',
 };
 
@@ -36,11 +36,11 @@ function normalizeSettings(raw){
     captureInputs: !!merged.captureInputs,
     captureSelections: !!merged.captureSelections,
     maxEvents: clampInt(merged.maxEvents, { min: 1, max: 50000, fallback: DEFAULT_SETTINGS.maxEvents }),
-    maxSnippetLen: clampInt(merged.maxSnippetLen, { min: 1, max: 4000, fallback: DEFAULT_SETTINGS.maxSnippetLen }),
-    minSnippetLen: clampInt(merged.minSnippetLen, { min: 0, max: 2000, fallback: DEFAULT_SETTINGS.minSnippetLen }),
+    maxSnippetLen: DEFAULT_SETTINGS.maxSnippetLen,
+    minSnippetLen: DEFAULT_SETTINGS.minSnippetLen,
     allowList: Array.isArray(merged.allowList) ? merged.allowList : [],
     blockList: Array.isArray(merged.blockList) ? merged.blockList : DEFAULT_SETTINGS.blockList,
-    includeHistoryWindowMinutes: clampInt(merged.includeHistoryWindowMinutes, { min: 0, max: 7 * 24 * 60, fallback: DEFAULT_SETTINGS.includeHistoryWindowMinutes }),
+    includeHistoryWindowMinutes: DEFAULT_SETTINGS.includeHistoryWindowMinutes,
     timeFormat: merged.timeFormat === 'iso' ? 'iso' : 'local',
   };
 }
@@ -109,44 +109,8 @@ async function persistHistoryDays(days, settings){
       await idbRequest(store.put(record));
     }
     await idbTxDone(tx);
-    await trimStoredHistory(settings.maxEvents);
   } catch (e){
     console.error('Persist history days failed', e);
-  }
-}
-
-async function trimStoredHistory(maxEvents){
-  try {
-    if (!Number.isFinite(maxEvents) || maxEvents <= 0) return;
-    const db = await getHistoryDb();
-    const days = await new Promise((resolve, reject) => {
-      const tx = db.transaction(HISTORY_STORE, 'readonly');
-      const store = tx.objectStore(HISTORY_STORE);
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
-    });
-    let total = days.reduce((sum, d) => sum + (d.lines?.length || 0), 0);
-    if (total <= maxEvents) return;
-    days.sort((a,b)=>a.sortValue - b.sortValue);
-    const tx = db.transaction(HISTORY_STORE, 'readwrite');
-    const store = tx.objectStore(HISTORY_STORE);
-    for (const day of days){
-      if (total <= maxEvents) break;
-      const lines = Array.isArray(day.lines) ? day.lines : [];
-      while (lines.length && total > maxEvents){
-        lines.shift();
-        total--;
-      }
-      if (!lines.length){
-        await idbRequest(store.delete(day.dayKey));
-      } else {
-        await idbRequest(store.put({ ...day, lines }));
-      }
-    }
-    await idbTxDone(tx);
-  } catch (e){
-    console.error('Trim stored history failed', e);
   }
 }
 
@@ -249,8 +213,8 @@ function dayBucket(ts){
 }
 
 async function collectRecentHistory(settings){
-  const windowMs = settings.includeHistoryWindowMinutes*60*1000;
-  const sinceTs = Date.now() - windowMs;
+  const windowMinutes = Number(settings.includeHistoryWindowMinutes) || 0;
+  const sinceTs = windowMinutes > 0 ? Date.now() - windowMinutes * 60 * 1000 : 0;
   const since = new Date(sinceTs);
   const maxResults = Math.max(settings.maxEvents || 0, 200);
 
@@ -331,7 +295,8 @@ async function collectRecentHistory(settings){
 
 async function clearRecentHistory(settings){
   const endTime = Date.now();
-  const startTime = endTime - settings.includeHistoryWindowMinutes*60*1000;
+  const windowMinutes = Number(settings.includeHistoryWindowMinutes) || 0;
+  const startTime = windowMinutes > 0 ? endTime - windowMinutes * 60 * 1000 : 0;
   await chrome.history.deleteRange({ startTime, endTime });
 }
 
@@ -439,9 +404,13 @@ async function composeReport(){
       const extra = sr ? ` | search:${sr.engine} → "${sr.query}"` : '';
       lines.push(`- [${t}] PAGE OPEN:${extra}${base}`);
     } else if (ev.kind === 'selection' && settings.captureSelections) {
-      const snippet = (ev.text||'').slice(0, settings.maxSnippetLen).replaceAll('\n',' ');
-      if (snippet.length >= settings.minSnippetLen)
-        lines.push(`- [${t}] SELECT:${base}\n    “${snippet}”`);
+      const rawText = ev.text || '';
+      if (!rawText) continue;
+      if (settings.minSnippetLen > 0 && rawText.length < settings.minSnippetLen) continue;
+      const snippet = settings.maxSnippetLen > 0
+        ? rawText.slice(0, settings.maxSnippetLen).replaceAll('\n',' ')
+        : rawText.replaceAll('\n',' ');
+      lines.push(`- [${t}] SELECT:${base}\n    “${snippet}”`);
     } else if (ev.kind === 'input' && settings.captureInputs) {
       const label = ev.label ? ` (${ev.label})` : '';
       const v = (ev.value||'').slice(0, 400).replaceAll('\n',' ');

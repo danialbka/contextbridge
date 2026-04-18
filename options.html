@@ -19,9 +19,8 @@
 
     <section>
       <h2>Limits</h2>
-      <label>Max events <input type="number" id="maxEvents" min="100" max="10000" step="100"></label>
-      <label>Recent browser history window (minutes) <input type="number" id="historyWindow" min="0" max="240"></label>
-      <label>Selection length: min <input type="number" id="minSel" min="0" max="2000" style="width:80px"> chars, max <input type="number" id="maxSel" min="50" max="4000" style="width:80px"> chars</label>
+      <label>Max events <input type="number" id="maxEvents" min="100" max="50000" step="100"></label>
+      <p class="hint">Max events caps session events and the number of browser history entries shown (minimum 200).</p>
       <label>Time format
         <select id="timeFormat">
           <option value="local">Local time</option>
